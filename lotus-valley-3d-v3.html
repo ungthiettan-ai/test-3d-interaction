@@ -1,0 +1,1790 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Lotus Valley 3D — Hand & Pointer Spatial Experience</title>
+  <style>
+    :root {
+      --bg-deep: #0b0714;
+      --panel-bg: rgba(16, 11, 28, 0.72);
+      --panel-border: rgba(235, 185, 255, 0.22);
+      --text-main: #f7f1ff;
+      --text-muted: #cbb9e6;
+      --accent-pink: #f48fb1;
+      --accent-violet: #b388ff;
+      --accent-gold: #ffd180;
+      --accent-sky: #80d8ff;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: var(--bg-deep);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      user-select: none;
+    }
+
+    #scene-canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+      z-index: 1;
+    }
+
+    #hand-cursor {
+      position: fixed;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+      z-index: 12;
+      opacity: 0;
+      transition: opacity 0.25s ease, width 0.2s ease, height 0.2s ease;
+      background: radial-gradient(circle, rgba(255, 232, 186, 0.95) 0%, rgba(244, 143, 177, 0.45) 45%, rgba(179, 136, 255, 0) 75%);
+      box-shadow: 0 0 18px rgba(255, 209, 128, 0.75), 0 0 36px rgba(244, 143, 177, 0.4);
+    }
+
+    #hand-cursor.active {
+      opacity: 1;
+    }
+
+    #hand-cursor.pinch {
+      width: 18px;
+      height: 18px;
+      box-shadow: 0 0 24px rgba(255, 209, 128, 1), 0 0 44px rgba(128, 216, 255, 0.65);
+    }
+
+    #hud {
+      position: fixed;
+      top: 16px;
+      left: 16px;
+      right: 16px;
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      z-index: 15;
+      pointer-events: none;
+    }
+
+    .hud-group {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      pointer-events: auto;
+    }
+
+    .hud-pill {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-radius: 999px;
+      padding: 7px 14px;
+      font-size: 12.5px;
+      line-height: 1.3;
+      color: var(--text-main);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 8px 24px rgba(5, 2, 12, 0.35);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-gold);
+      box-shadow: 0 0 10px var(--accent-gold);
+    }
+
+    .status-dot.hand-on {
+      background: #80f2c4;
+      box-shadow: 0 0 10px #80f2c4;
+    }
+
+    .status-dot.pointer-mode {
+      background: var(--accent-sky);
+      box-shadow: 0 0 10px var(--accent-sky);
+    }
+
+    button.hud-btn {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      color: var(--text-main);
+      border-radius: 999px;
+      padding: 7px 14px;
+      font-size: 12.5px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
+      box-shadow: 0 8px 24px rgba(5, 2, 12, 0.35);
+    }
+
+    button.hud-btn:hover {
+      background: rgba(65, 36, 98, 0.78);
+      border-color: rgba(255, 209, 128, 0.55);
+      transform: translateY(-1px);
+    }
+
+    button.hud-btn:active {
+      transform: translateY(0);
+    }
+
+    button.hud-btn.primary {
+      background: linear-gradient(135deg, rgba(179, 136, 255, 0.42), rgba(244, 143, 177, 0.42));
+      border-color: rgba(255, 209, 128, 0.6);
+    }
+
+    #guide-hint {
+      position: fixed;
+      left: 16px;
+      bottom: 16px;
+      max-width: 390px;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-radius: 16px;
+      padding: 12px 15px;
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: var(--text-muted);
+      z-index: 15;
+      box-shadow: 0 10px 28px rgba(5, 2, 12, 0.4);
+    }
+
+    #guide-hint strong {
+      color: var(--accent-gold);
+      font-weight: 600;
+    }
+
+    #pip-card {
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      width: 224px;
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-radius: 16px;
+      overflow: hidden;
+      z-index: 16;
+      box-shadow: 0 12px 32px rgba(5, 2, 12, 0.5);
+      transition: width 0.22s ease, opacity 0.2s ease;
+    }
+
+    #pip-card.expanded {
+      width: 320px;
+    }
+
+    #pip-card.hidden-pip {
+      display: none;
+    }
+
+    .pip-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      font-size: 11.5px;
+      color: var(--text-muted);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .pip-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .pip-mini-btn {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      color: var(--text-main);
+      border-radius: 6px;
+      padding: 2px 7px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+
+    .pip-mini-btn:hover {
+      background: rgba(244, 143, 177, 0.25);
+    }
+
+    .pip-stage {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 4 / 3;
+      background: #090611;
+      overflow: hidden;
+    }
+
+    #pip-video {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      transform: scaleX(-1);
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+
+    #pip-video.ready {
+      opacity: 0.92;
+    }
+
+    #pip-canvas {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: block;
+      z-index: 2;
+    }
+
+    .pip-fallback-label {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 12px;
+      font-size: 11.5px;
+      color: var(--text-muted);
+      z-index: 1;
+    }
+
+    #permission-modal {
+      position: fixed;
+      inset: 0;
+      background: rgba(8, 5, 16, 0.72);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      z-index: 30;
+      transition: opacity 0.25s ease, visibility 0.25s ease;
+    }
+
+    #permission-modal.hidden {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+    }
+
+    .modal-card {
+      width: 100%;
+      max-width: 450px;
+      background: linear-gradient(160deg, rgba(28, 17, 46, 0.94), rgba(14, 10, 25, 0.96));
+      border: 1px solid rgba(244, 143, 177, 0.34);
+      border-radius: 22px;
+      padding: 26px 24px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65), 0 0 40px rgba(179, 136, 255, 0.16);
+    }
+
+    .modal-badge {
+      display: inline-block;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent-gold);
+      background: rgba(255, 209, 128, 0.12);
+      border: 1px solid rgba(255, 209, 128, 0.28);
+      padding: 4px 10px;
+      border-radius: 999px;
+      margin-bottom: 12px;
+    }
+
+    .modal-card h1 {
+      font-size: 20px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      color: var(--text-main);
+    }
+
+    .modal-card p {
+      font-size: 13.5px;
+      line-height: 1.6;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+
+    .privacy-note {
+      background: rgba(255, 255, 255, 0.05);
+      border-left: 3px solid var(--accent-violet);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 12px;
+      color: #e6d9fa;
+      margin-bottom: 20px;
+      line-height: 1.5;
+    }
+
+    .modal-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .btn-allow {
+      flex: 1 1 180px;
+      background: linear-gradient(135deg, #c792ea, #f48fb1, #ffd180);
+      color: #160c24;
+      border: none;
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-size: 13.5px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 0.15s ease, filter 0.2s ease;
+    }
+
+    .btn-allow:hover {
+      transform: translateY(-1px);
+      filter: brightness(1.06);
+    }
+
+    .btn-pointer {
+      flex: 1 1 160px;
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text-main);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      padding: 12px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+
+    .btn-pointer:hover {
+      background: rgba(255, 255, 255, 0.15);
+    }
+
+    @media (max-width: 640px) {
+      #guide-hint {
+        display: none;
+      }
+      #pip-card {
+        width: 164px;
+      }
+      #pip-card.expanded {
+        width: 230px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="scene-canvas"></canvas>
+  <div id="hand-cursor"></div>
+
+  <div id="hud">
+    <div class="hud-group">
+      <div class="hud-pill">
+        <span id="status-dot" class="status-dot"></span>
+        <span id="status-text">Đang chờ chọn chế độ điều khiển</span>
+      </div>
+      <div class="hud-pill" id="coords-pill">Góc: 0° · Cao độ: 1.0</div>
+    </div>
+    <div class="hud-group">
+      <button id="toggle-camera-btn" class="hud-btn primary">Bật / Tắt Camera</button>
+      <button id="reset-cam-btn" class="hud-btn">Đặt lại góc nhìn</button>
+      <button id="toggle-pip-btn" class="hud-btn">Ẩn / Hiện PiP</button>
+    </div>
+  </div>
+
+  <div id="guide-hint">
+    <strong>Điều khiển không gian:</strong> Đưa bàn tay <strong>qua lại / lên xuống</strong> (hoặc di chuyển &amp; kéo chuột) để lướt camera quanh hồ sen. <strong>Chụm ngón cái &amp; ngón trỏ</strong> (hoặc giữ chuột trái) để hút nhẹ các vòng sáng.
+  </div>
+
+  <div id="pip-card">
+    <div class="pip-header">
+      <span id="pip-title">Khung tay (PiP)</span>
+      <div class="pip-actions">
+        <button id="pip-expand-btn" class="pip-mini-btn" title="Phóng to / Thu gọn">Mở rộng</button>
+        <button id="pip-hide-btn" class="pip-mini-btn" title="Ẩn khung">Ẩn</button>
+      </div>
+    </div>
+    <div class="pip-stage">
+      <video id="pip-video" playsinline muted></video>
+      <canvas id="pip-canvas" width="320" height="240"></canvas>
+      <div id="pip-fallback" class="pip-fallback-label">Chưa bật camera — đang dùng chuột / chạm hoặc chờ cấp quyền.</div>
+    </div>
+  </div>
+
+  <div id="permission-modal">
+    <div class="modal-card">
+      <div class="modal-badge">Lotus Valley 3D · Spatial Memo</div>
+      <h1>Tương tác không gian 3D bằng bàn tay</h1>
+      <p>
+        Không gian thung lũng hoa sen tím – hồng – hoàng hôn này cho phép bạn di chuyển góc nhìn bằng chuyển động bàn tay qua camera, hoặc điều khiển trực tiếp bằng chuột / cảm ứng.
+      </p>
+      <div class="privacy-note">
+        <strong>Quyền riêng tư:</strong> Luồng hình ảnh từ camera chỉ được xử lý cục bộ trên trình duyệt của bạn để nhận diện cử động tay, không lưu trữ hay gửi video đi bất kỳ đâu.
+      </div>
+      <div class="modal-actions">
+        <button id="allow-camera-btn" class="btn-allow">Cho phép Camera &amp; Bắt đầu</button>
+        <button id="use-pointer-btn" class="btn-pointer">Dùng Chuột / Chạm</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.169.0/build/three.module.js"
+      }
+    }
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <script type="module">
+    import * as THREE from 'three';
+
+    // --- DOM Elements ---
+    const canvas = document.getElementById('scene-canvas');
+    const handCursor = document.getElementById('hand-cursor');
+    const statusDot = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+    const coordsPill = document.getElementById('coords-pill');
+
+    const modal = document.getElementById('permission-modal');
+    const allowCameraBtn = document.getElementById('allow-camera-btn');
+    const usePointerBtn = document.getElementById('use-pointer-btn');
+    const toggleCameraBtn = document.getElementById('toggle-camera-btn');
+    const resetCamBtn = document.getElementById('reset-cam-btn');
+    const togglePipBtn = document.getElementById('toggle-pip-btn');
+
+    const pipCard = document.getElementById('pip-card');
+    const pipTitle = document.getElementById('pip-title');
+    const pipExpandBtn = document.getElementById('pip-expand-btn');
+    const pipHideBtn = document.getElementById('pip-hide-btn');
+    const pipVideo = document.getElementById('pip-video');
+    const pipCanvas = document.getElementById('pip-canvas');
+    const pipCtx = pipCanvas.getContext('2d');
+    const pipFallback = document.getElementById('pip-fallback');
+
+    // --- Renderer & Scene Setup ---
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      powerPreference: 'high-performance'
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.06;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+    const scene = new THREE.Scene();
+    const fogColor = new THREE.Color('#a373b0');
+    scene.fog = new THREE.FogExp2(fogColor.getHex(), 0.0085);
+
+    const camera = new THREE.PerspectiveCamera(
+      46,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      280
+    );
+
+    // --- Procedural Texture Helpers ---
+    function hash2D(x, z) {
+      const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453123;
+      return s - Math.floor(s);
+    }
+
+    function valueNoise(x, z) {
+      const ix = Math.floor(x);
+      const iz = Math.floor(z);
+      const fx = x - ix;
+      const fz = z - iz;
+      const ux = fx * fx * (3 - 2 * fx);
+      const uz = fz * fz * (3 - 2 * fz);
+
+      const a = hash2D(ix, iz);
+      const b = hash2D(ix + 1, iz);
+      const c = hash2D(ix, iz + 1);
+      const d = hash2D(ix + 1, iz + 1);
+
+      return a + (b - a) * ux + (c - a) * uz + (a - b - c + d) * ux * uz;
+    }
+
+    function fbm(x, z, octaves = 4) {
+      let val = 0;
+      let amp = 0.5;
+      let freq = 1;
+      for (let i = 0; i < octaves; i++) {
+        val += amp * valueNoise(x * freq, z * freq);
+        freq *= 2.03;
+        amp *= 0.5;
+      }
+      return val;
+    }
+
+    // 1. Crisp circular glowing orb sprite texture (Safari-safe)
+    function createGlowOrbTexture() {
+      const c = document.createElement('canvas');
+      c.width = 256;
+      c.height = 256;
+      const ctx = c.getContext('2d');
+      const cx = 128, cy = 128;
+
+      ctx.clearRect(0, 0, 256, 256);
+
+      // Outer atmospheric glow halo
+      const outerGrad = ctx.createRadialGradient(cx, cy, 4, cx, cy, 122);
+      outerGrad.addColorStop(0.0, 'rgba(255, 252, 240, 1.0)');
+      outerGrad.addColorStop(0.16, 'rgba(255, 226, 175, 0.95)');
+      outerGrad.addColorStop(0.38, 'rgba(250, 165, 214, 0.55)');
+      outerGrad.addColorStop(0.68, 'rgba(188, 134, 242, 0.16)');
+      outerGrad.addColorStop(1.0, 'rgba(188, 134, 242, 0.0)');
+
+      ctx.fillStyle = outerGrad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 122, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Subtle glowing ring contour
+      ctx.strokeStyle = 'rgba(255, 246, 224, 0.72)';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 34, 0, Math.PI * 2);
+      ctx.stroke();
+
+      // Bright inner core point
+      const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 24);
+      coreGrad.addColorStop(0.0, 'rgba(255, 255, 250, 1.0)');
+      coreGrad.addColorStop(0.6, 'rgba(255, 236, 194, 0.9)');
+      coreGrad.addColorStop(1.0, 'rgba(255, 220, 170, 0.0)');
+      ctx.fillStyle = coreGrad;
+      ctx.beginPath();
+      ctx.arc(cx, cy, 24, 0, Math.PI * 2);
+      ctx.fill();
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.needsUpdate = true;
+      return tex;
+    }
+
+    // 2. Soft volumetric cloud puff texture
+    function createCloudTexture() {
+      const c = document.createElement('canvas');
+      c.width = 512;
+      c.height = 256;
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, 512, 256);
+
+      const puffs = [
+        { x: 145, y: 150, r: 78, a: 0.42 },
+        { x: 215, y: 122, r: 96, a: 0.54 },
+        { x: 295, y: 130, r: 88, a: 0.48 },
+        { x: 365, y: 154, r: 68, a: 0.36 },
+        { x: 185, y: 166, r: 66, a: 0.32 },
+        { x: 265, y: 162, r: 76, a: 0.35 }
+      ];
+
+      for (const p of puffs) {
+        const g = ctx.createRadialGradient(p.x, p.y, p.r * 0.08, p.x, p.y, p.r);
+        g.addColorStop(0.0, `rgba(255, 244, 248, ${p.a})`);
+        g.addColorStop(0.55, `rgba(252, 214, 232, ${p.a * 0.58})`);
+        g.addColorStop(1.0, 'rgba(244, 196, 226, 0.0)');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.needsUpdate = true;
+      return tex;
+    }
+
+    // 3. Fine feathery grass tuft texture (small, delicate blades with pink-violet-cream gradient)
+    function createGrassTuftTexture() {
+      const c = document.createElement('canvas');
+      c.width = 256;
+      c.height = 256;
+      const ctx = c.getContext('2d');
+      ctx.clearRect(0, 0, 256, 256);
+
+      const bladeTotal = 110;
+      for (let i = 0; i < bladeTotal; i++) {
+        const t = i / (bladeTotal - 1);
+        const spread = (t - 0.5) * 204;
+        const baseX = 128 + (t - 0.5) * 32;
+        const baseY = 252;
+        const tipX = 128 + spread;
+        const tipY = 34 + Math.abs(t - 0.5) * 86 + (hash2D(i, 7) - 0.5) * 24;
+        const ctrlX = (baseX + tipX) * 0.5 + (t - 0.5) * 42;
+        const ctrlY = (baseY + tipY) * 0.5 - 16;
+
+        const bladeGrad = ctx.createLinearGradient(baseX, baseY, tipX, tipY);
+        bladeGrad.addColorStop(0.0, 'rgba(116, 36, 124, 0.92)');
+        bladeGrad.addColorStop(0.45, 'rgba(224, 92, 174, 0.92)');
+        bladeGrad.addColorStop(0.82, 'rgba(250, 184, 228, 0.88)');
+        bladeGrad.addColorStop(1.0, 'rgba(255, 236, 248, 0.68)');
+
+        ctx.strokeStyle = bladeGrad;
+        ctx.lineWidth = 1.0 + hash2D(i, 19) * 1.15;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(baseX, baseY);
+        ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
+        ctx.stroke();
+
+        if (i % 4 === 0) {
+          ctx.fillStyle = 'rgba(255, 230, 245, 0.72)';
+          ctx.beginPath();
+          ctx.arc(tipX, tipY, 1.4, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.needsUpdate = true;
+      return tex;
+    }
+
+    // 4. Organic petal texture & bump map
+    function createLotusPetalMaps() {
+      const w = 256, h = 256;
+      const colorCanvas = document.createElement('canvas');
+      colorCanvas.width = w;
+      colorCanvas.height = h;
+      const cCtx = colorCanvas.getContext('2d');
+
+      const bumpCanvas = document.createElement('canvas');
+      bumpCanvas.width = w;
+      bumpCanvas.height = h;
+      const bCtx = bumpCanvas.getContext('2d');
+
+      const grad = cCtx.createLinearGradient(0, h, 0, 0);
+      grad.addColorStop(0.0, '#9c3d8c');
+      grad.addColorStop(0.32, '#d87bb8');
+      grad.addColorStop(0.68, '#ebd0ee');
+      grad.addColorStop(1.0, '#fff4ea');
+      cCtx.fillStyle = grad;
+      cCtx.fillRect(0, 0, w, h);
+
+      bCtx.fillStyle = '#808080';
+      bCtx.fillRect(0, 0, w, h);
+
+      for (let i = 0; i < 42; i++) {
+        const u = (i / 41) * w;
+        const distCenter = Math.abs(u - w * 0.5) / (w * 0.5);
+        const alpha = Math.max(0.03, (1 - distCenter) * 0.14);
+
+        cCtx.strokeStyle = i % 2 === 0
+          ? `rgba(255, 214, 165, ${alpha})`
+          : `rgba(145, 78, 175, ${alpha * 0.85})`;
+        cCtx.lineWidth = 1.4 + (1 - distCenter) * 1.8;
+        cCtx.beginPath();
+        cCtx.moveTo(w * 0.5 + (u - w * 0.5) * 0.25, h);
+        cCtx.quadraticCurveTo(u, h * 0.5, w * 0.5 + (u - w * 0.5) * 0.85, 12);
+        cCtx.stroke();
+
+        bCtx.strokeStyle = `rgba(210, 210, 210, ${alpha * 1.4})`;
+        bCtx.lineWidth = 1.5;
+        bCtx.beginPath();
+        bCtx.moveTo(w * 0.5 + (u - w * 0.5) * 0.25, h);
+        bCtx.quadraticCurveTo(u, h * 0.5, w * 0.5 + (u - w * 0.5) * 0.85, 12);
+        bCtx.stroke();
+      }
+
+      const imgData = cCtx.getImageData(0, 0, w, h);
+      const d = imgData.data;
+      for (let p = 0; p < d.length; p += 4) {
+        const px = (p / 4) % w;
+        const py = Math.floor((p / 4) / w);
+        const n = (hash2D(px * 0.45, py * 0.45) - 0.5) * 14;
+        d[p] = THREE.MathUtils.clamp(d[p] + n, 0, 255);
+        d[p + 1] = THREE.MathUtils.clamp(d[p + 1] + n, 0, 255);
+        d[p + 2] = THREE.MathUtils.clamp(d[p + 2] + n, 0, 255);
+      }
+      cCtx.putImageData(imgData, 0, 0);
+
+      const map = new THREE.CanvasTexture(colorCanvas);
+      map.colorSpace = THREE.SRGBColorSpace;
+      map.needsUpdate = true;
+
+      const bumpMap = new THREE.CanvasTexture(bumpCanvas);
+      bumpMap.needsUpdate = true;
+
+      return { map, bumpMap };
+    }
+
+    // 5. Water ripple normal map
+    function createWaterRippleTexture() {
+      const size = 256;
+      const c = document.createElement('canvas');
+      c.width = size;
+      c.height = size;
+      const ctx = c.getContext('2d');
+      const img = ctx.createImageData(size, size);
+      const data = img.data;
+
+      for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+          const nx = (x / size) * Math.PI * 6;
+          const ny = (y / size) * Math.PI * 6;
+          const w1 = Math.sin(nx * 2.0 + Math.cos(ny * 1.5) * 1.8);
+          const w2 = Math.cos(ny * 2.5 - Math.sin(nx * 1.7) * 1.6);
+          const grain = (hash2D(x * 0.35, y * 0.35) - 0.5) * 0.35;
+          const hVal = (w1 + w2) * 0.25 + grain;
+
+          const idx = (y * size + x) * 4;
+          const b = Math.floor(THREE.MathUtils.clamp(128 + hVal * 55, 0, 255));
+          data[idx] = b;
+          data[idx + 1] = b;
+          data[idx + 2] = 255;
+          data[idx + 3] = 255;
+        }
+      }
+      ctx.putImageData(img, 0, 0);
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = THREE.RepeatWrapping;
+      tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(7, 7);
+      tex.needsUpdate = true;
+      return tex;
+    }
+
+    const glowOrbTex = createGlowOrbTexture();
+    const cloudTex = createCloudTexture();
+    const grassTuftTex = createGrassTuftTexture();
+    const petalMaps = createLotusPetalMaps();
+    const waterRippleTex = createWaterRippleTexture();
+
+    // --- Sky Dome with Warm Sunset Glow ---
+    const skyGeo = new THREE.SphereGeometry(190, 48, 32);
+    const skyMat = new THREE.ShaderMaterial({
+      side: THREE.BackSide,
+      depthWrite: false,
+      uniforms: {
+        uTopColor: { value: new THREE.Color('#5a488f') },
+        uMidColor: { value: new THREE.Color('#b587cc') },
+        uSkyTint: { value: new THREE.Color('#9ab7e6') },
+        uHorizonGold: { value: new THREE.Color('#ffe0ad') },
+        uHorizonPink: { value: new THREE.Color('#f0a2c9') }
+      },
+      vertexShader: `
+        varying vec3 vWorldPos;
+        void main() {
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vWorldPos = wp.xyz;
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uTopColor;
+        uniform vec3 uMidColor;
+        uniform vec3 uSkyTint;
+        uniform vec3 uHorizonGold;
+        uniform vec3 uHorizonPink;
+        varying vec3 vWorldPos;
+        void main() {
+          vec3 dir = normalize(vWorldPos);
+          float h = clamp(dir.y, -0.25, 1.0);
+          float up = max(h, 0.0);
+
+          vec3 col = mix(uHorizonPink, uSkyTint, smoothstep(0.0, 0.24, up));
+          col = mix(col, uMidColor, smoothstep(0.18, 0.54, up));
+          col = mix(col, uTopColor, smoothstep(0.48, 0.95, up));
+
+          // Warm atmospheric glow around the horizon sun
+          vec3 sunDir = normalize(vec3(18.0, 14.5, -72.0));
+          float sunAmt = max(dot(normalize(dir), sunDir), 0.0);
+          col += vec3(1.0, 0.78, 0.52) * pow(sunAmt, 7.0) * 0.34;
+          col += vec3(1.0, 0.92, 0.72) * pow(sunAmt, 48.0) * 0.45;
+
+          float horizonBand = exp(-abs(h - 0.02) * 12.0);
+          col = mix(col, uHorizonGold, horizonBand * 0.42);
+
+          gl_FragColor = vec4(col, 1.0);
+        }
+      `
+    });
+    const skyDome = new THREE.Mesh(skyGeo, skyMat);
+    scene.add(skyDome);
+
+    // --- Natural Sun Disc + Soft Corona Halo in Sky ---
+    const sunGroup = new THREE.Group();
+    sunGroup.position.set(18, 15.5, -76);
+    scene.add(sunGroup);
+
+    const sunCoronaGeo = new THREE.PlaneGeometry(34, 34);
+    const sunCoronaMat = new THREE.MeshBasicMaterial({
+      map: glowOrbTex,
+      color: new THREE.Color('#ffe2a8'),
+      transparent: true,
+      opacity: 0.68,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      fog: false
+    });
+    const sunCorona = new THREE.Mesh(sunCoronaGeo, sunCoronaMat);
+    sunGroup.add(sunCorona);
+
+    const sunDiscGeo = new THREE.CircleGeometry(4.4, 48);
+    const sunDiscMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color('#fff4d4'),
+      transparent: true,
+      opacity: 0.96,
+      depthWrite: false,
+      fog: false
+    });
+    const sunDisc = new THREE.Mesh(sunDiscGeo, sunDiscMat);
+    sunDisc.position.z = 0.2;
+    sunGroup.add(sunDisc);
+
+    // --- Drifting Layered Clouds ---
+    const cloudGroup = new THREE.Group();
+    scene.add(cloudGroup);
+
+    const cloudItems = [];
+    const cloudConfigs = [
+      { x: -34, y: 17, z: -64, w: 28, h: 13, speed: 0.22, opacity: 0.58 },
+      { x: -6,  y: 21, z: -72, w: 34, h: 15, speed: 0.18, opacity: 0.52 },
+      { x: 28,  y: 18, z: -66, w: 30, h: 14, speed: 0.25, opacity: 0.56 },
+      { x: -48, y: 13, z: -48, w: 22, h: 10, speed: 0.28, opacity: 0.48 },
+      { x: 42,  y: 14, z: -52, w: 25, h: 11, speed: 0.20, opacity: 0.50 },
+      { x: 8,   y: 25, z: -80, w: 38, h: 16, speed: 0.15, opacity: 0.44 }
+    ];
+
+    cloudConfigs.forEach((cfg, idx) => {
+      const cGeo = new THREE.PlaneGeometry(cfg.w, cfg.h);
+      const cMat = new THREE.MeshBasicMaterial({
+        map: cloudTex,
+        color: new THREE.Color(idx % 2 === 0 ? '#fff0f7' : '#ffe6d6'),
+        transparent: true,
+        opacity: cfg.opacity,
+        depthWrite: false
+      });
+      const cMesh = new THREE.Mesh(cGeo, cMat);
+      cMesh.position.set(cfg.x, cfg.y, cfg.z);
+      cloudGroup.add(cMesh);
+      cloudItems.push({
+        mesh: cMesh,
+        baseX: cfg.x,
+        baseY: cfg.y,
+        speed: cfg.speed,
+        phase: idx * 1.35
+      });
+    });
+
+    // --- Lighting ---
+    const hemiLight = new THREE.HemisphereLight('#fce2f5', '#4f2263', 1.25);
+    scene.add(hemiLight);
+
+    const sunLight = new THREE.DirectionalLight('#ffe0b5', 1.85);
+    sunLight.position.set(18, 22, -48);
+    sunLight.castShadow = true;
+    sunLight.shadow.mapSize.set(1024, 1024);
+    sunLight.shadow.camera.near = 5;
+    sunLight.shadow.camera.far = 120;
+    const d = 32;
+    sunLight.shadow.camera.left = -d;
+    sunLight.shadow.camera.right = d;
+    sunLight.shadow.camera.top = d;
+    sunLight.shadow.camera.bottom = -d;
+    scene.add(sunLight);
+
+    const lotusGlowLight = new THREE.PointLight('#ffa8dc', 3.4, 24, 1.6);
+    lotusGlowLight.position.set(0, 2.2, 0);
+    scene.add(lotusGlowLight);
+
+    const goldCoreLight = new THREE.PointLight('#ffd48a', 2.6, 16, 1.7);
+    goldCoreLight.position.set(0, 3.0, 0);
+    scene.add(goldCoreLight);
+
+    // --- Terrain & Rolling Pink-Violet Hills ---
+    function getTerrainHeight(x, z) {
+      const dx = x / 10.5;
+      const dz = z / 8.2;
+      const distPond = Math.sqrt(dx * dx + dz * dz);
+
+      const n = fbm(x * 0.045 + 11.3, z * 0.045 - 7.1, 4);
+      const ridge = Math.abs(fbm(x * 0.025 - 3.4, z * 0.025 + 9.2, 3) - 0.5) * 2.0;
+
+      const basinMask = THREE.MathUtils.smoothstep(distPond, 0.65, 1.65);
+      const outerRise = THREE.MathUtils.smoothstep(distPond, 1.3, 5.2);
+
+      let h = -1.65;
+      h += basinMask * (n * 3.6 + ridge * 2.0);
+      h += outerRise * (n * 7.2 + ridge * 4.2);
+
+      const backHill = Math.exp(-((x + 16) ** 2 + (z + 28) ** 2) / 360) * 8.0;
+      h += backHill;
+
+      return h;
+    }
+
+    const terrainGeo = new THREE.PlaneGeometry(165, 165, 160, 160);
+    terrainGeo.rotateX(-Math.PI / 2);
+
+    const posAttr = terrainGeo.attributes.position;
+    const colors = new Float32Array(posAttr.count * 3);
+
+    const cDeepViolet = new THREE.Color('#5a226e');
+    const cMagenta = new THREE.Color('#c9499b');
+    const cPinkGrass = new THREE.Color('#f0a8d5');
+    const cLilacMist = new THREE.Color('#d6b8f2');
+    const tmpCol = new THREE.Color();
+
+    for (let i = 0; i < posAttr.count; i++) {
+      const x = posAttr.getX(i);
+      const z = posAttr.getZ(i);
+      const y = getTerrainHeight(x, z);
+      posAttr.setY(i, y);
+
+      const patch = fbm(x * 0.14, z * 0.14, 3);
+      if (y < -0.2) {
+        tmpCol.copy(cDeepViolet).lerp(cMagenta, patch * 0.6);
+      } else if (y < 1.6) {
+        tmpCol.copy(cMagenta).lerp(cPinkGrass, patch);
+      } else {
+        tmpCol.copy(cPinkGrass).lerp(cLilacMist, THREE.MathUtils.clamp((y - 1.6) / 6.5, 0, 1) * 0.75 + patch * 0.25);
+      }
+
+      colors[i * 3] = tmpCol.r;
+      colors[i * 3 + 1] = tmpCol.g;
+      colors[i * 3 + 2] = tmpCol.b;
+    }
+
+    terrainGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    terrainGeo.computeVertexNormals();
+
+    const terrainMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.9,
+      metalness: 0.03
+    });
+    const terrainMesh = new THREE.Mesh(terrainGeo, terrainMat);
+    terrainMesh.receiveShadow = true;
+    scene.add(terrainMesh);
+
+    // --- Reflective Pond Water ---
+    const waterLevelY = -0.35;
+    const waterGeo = new THREE.CircleGeometry(15.2, 80);
+    waterGeo.rotateX(-Math.PI / 2);
+
+    const waterMat = new THREE.MeshPhysicalMaterial({
+      color: new THREE.Color('#b88ed4'),
+      emissive: new THREE.Color('#5c2973'),
+      emissiveIntensity: 0.42,
+      roughness: 0.12,
+      metalness: 0.35,
+      reflectivity: 0.95,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.08,
+      normalMap: waterRippleTex,
+      normalScale: new THREE.Vector2(0.28, 0.28),
+      transparent: true,
+      opacity: 0.86
+    });
+    const waterMesh = new THREE.Mesh(waterGeo, waterMat);
+    waterMesh.position.set(0, waterLevelY, 0);
+    waterMesh.receiveShadow = true;
+    scene.add(waterMesh);
+
+    const rippleRings = [];
+    for (let r = 0; r < 4; r++) {
+      const ringGeo = new THREE.RingGeometry(1.4, 1.56, 64);
+      ringGeo.rotateX(-Math.PI / 2);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: new THREE.Color(r % 2 === 0 ? '#ffd8f0' : '#ffd89c'),
+        transparent: true,
+        opacity: 0.22,
+        side: THREE.DoubleSide,
+        depthWrite: false
+      });
+      const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+      ringMesh.position.set(0, waterLevelY + 0.015, 0);
+      scene.add(ringMesh);
+      rippleRings.push({ mesh: ringMesh, mat: ringMat, phase: r * 0.25 });
+    }
+
+    // --- Detailed Multi-Layered Lotus Sculpture ---
+    const lotusGroup = new THREE.Group();
+    lotusGroup.position.set(0, waterLevelY + 0.08, 0);
+    scene.add(lotusGroup);
+
+    function createSculptedPetalGeometry(length, width, archAmount, cupAmount, tipLift) {
+      const geo = new THREE.PlaneGeometry(width, length, 16, 22);
+      geo.translate(0, length * 0.5, 0);
+      const p = geo.attributes.position;
+      for (let i = 0; i < p.count; i++) {
+        const px = p.getX(i);
+        const py = p.getY(i);
+        const t = THREE.MathUtils.clamp(py / length, 0, 1);
+
+        const widthProfile = Math.sin(Math.pow(t, 0.72) * Math.PI);
+        const xScaled = px * (0.25 + widthProfile * 0.95);
+
+        const outward = Math.sin(t * Math.PI * 0.85) * archAmount + Math.pow(t, 2.2) * tipLift;
+        const cupDepth = (1 - Math.abs(px) / Math.max(width * 0.5, 0.001)) * cupAmount * Math.sin(t * Math.PI);
+
+        p.setXYZ(i, xScaled, py, outward + cupDepth);
+      }
+      geo.computeVertexNormals();
+      return geo;
+    }
+
+    const outerPetalMat = new THREE.MeshPhysicalMaterial({
+      map: petalMaps.map,
+      bumpMap: petalMaps.bumpMap,
+      bumpScale: 0.035,
+      color: new THREE.Color('#f5d4f7'),
+      emissive: new THREE.Color('#8c3ea6'),
+      emissiveIntensity: 0.34,
+      roughness: 0.28,
+      metalness: 0.14,
+      clearcoat: 0.65,
+      clearcoatRoughness: 0.18,
+      side: THREE.DoubleSide
+    });
+
+    const midPetalMat = new THREE.MeshPhysicalMaterial({
+      map: petalMaps.map,
+      bumpMap: petalMaps.bumpMap,
+      bumpScale: 0.03,
+      color: new THREE.Color('#ffd8f2'),
+      emissive: new THREE.Color('#b84ca8'),
+      emissiveIntensity: 0.42,
+      roughness: 0.24,
+      metalness: 0.2,
+      clearcoat: 0.72,
+      clearcoatRoughness: 0.15,
+      side: THREE.DoubleSide
+    });
+
+    const innerPetalMat = new THREE.MeshPhysicalMaterial({
+      map: petalMaps.map,
+      bumpMap: petalMaps.bumpMap,
+      bumpScale: 0.025,
+      color: new THREE.Color('#ffe4c4'),
+      emissive: new THREE.Color('#d97898'),
+      emissiveIntensity: 0.52,
+      roughness: 0.2,
+      metalness: 0.3,
+      clearcoat: 0.8,
+      clearcoatRoughness: 0.12,
+      side: THREE.DoubleSide
+    });
+
+    const petalLayers = [
+      { count: 10, radius: 0.72, baseTilt: 1.36, scale: 1.22, mat: outerPetalMat, len: 2.55, wid: 1.45, arch: 0.65, cup: 0.14, tip: 0.35 },
+      { count: 9,  radius: 0.56, baseTilt: 1.04, scale: 1.08, mat: outerPetalMat, len: 2.25, wid: 1.28, arch: 0.52, cup: 0.16, tip: 0.28 },
+      { count: 8,  radius: 0.40, baseTilt: 0.72, scale: 0.94, mat: midPetalMat,   len: 1.92, wid: 1.08, arch: 0.38, cup: 0.15, tip: 0.18 },
+      { count: 7,  radius: 0.25, baseTilt: 0.44, scale: 0.80, mat: innerPetalMat, len: 1.56, wid: 0.88, arch: 0.24, cup: 0.12, tip: 0.10 },
+      { count: 6,  radius: 0.13, baseTilt: 0.22, scale: 0.66, mat: innerPetalMat, len: 1.25, wid: 0.68, arch: 0.14, cup: 0.08, tip: 0.05 }
+    ];
+
+    const petalRings = [];
+    petalLayers.forEach((cfg, rIdx) => {
+      const ringPivot = new THREE.Group();
+      const geo = createSculptedPetalGeometry(cfg.len, cfg.wid, cfg.arch, cfg.cup, cfg.tip);
+      for (let i = 0; i < cfg.count; i++) {
+        const angle = (i / cfg.count) * Math.PI * 2 + rIdx * 0.42;
+        const holder = new THREE.Group();
+        holder.rotation.y = angle;
+        const mesh = new THREE.Mesh(geo, cfg.mat);
+        mesh.position.set(0, 0.12, cfg.radius);
+        mesh.rotation.x = cfg.baseTilt;
+        mesh.scale.setScalar(cfg.scale);
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        holder.add(mesh);
+        ringPivot.add(holder);
+      }
+      lotusGroup.add(ringPivot);
+      petalRings.push({ ringPivot, baseTilt: cfg.baseTilt });
+    });
+
+    const stamenGroup = new THREE.Group();
+    stamenGroup.position.set(0, 1.15, 0);
+    const stamenGeo = new THREE.CylinderGeometry(0.015, 0.025, 0.55, 5);
+    stamenGeo.translate(0, 0.275, 0);
+    const stamenMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color('#ffe3a3'),
+      emissive: new THREE.Color('#ffaa44'),
+      emissiveIntensity: 1.15,
+      roughness: 0.3
+    });
+    for (let s = 0; s < 28; s++) {
+      const a = (s / 28) * Math.PI * 2;
+      const rad = 0.22 + (s % 3) * 0.08;
+      const st = new THREE.Mesh(stamenGeo, stamenMat);
+      st.position.set(Math.cos(a) * rad, 0, Math.sin(a) * rad);
+      st.rotation.set(Math.sin(a) * 0.35, 0, -Math.cos(a) * 0.35);
+      stamenGroup.add(st);
+    }
+    lotusGroup.add(stamenGroup);
+
+    const coreGeo = new THREE.SphereGeometry(0.36, 24, 24);
+    const coreMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color('#fff5d6'),
+      emissive: new THREE.Color('#ffc46b'),
+      emissiveIntensity: 1.65,
+      roughness: 0.22
+    });
+    const lotusCore = new THREE.Mesh(coreGeo, coreMat);
+    lotusCore.position.set(0, 1.32, 0);
+    lotusGroup.add(lotusCore);
+
+    const lotusReflection = lotusGroup.clone();
+    lotusReflection.scale.set(1.02, -0.58, 1.02);
+    lotusReflection.position.set(0, waterLevelY - 0.06, 0);
+    lotusReflection.traverse((obj) => {
+      if (obj.isMesh && obj.material) {
+        const clonedMat = obj.material.clone();
+        clonedMat.transparent = true;
+        clonedMat.opacity = 0.28;
+        obj.material = clonedMat;
+      }
+    });
+    scene.add(lotusReflection);
+
+    // --- Rocks ---
+    const rockMat = new THREE.MeshStandardMaterial({
+      color: new THREE.Color('#c2a5cf'),
+      roughness: 0.84,
+      metalness: 0.05
+    });
+
+    function addRockCluster(cx, cz, scale) {
+      const g = new THREE.Group();
+      const baseY = getTerrainHeight(cx, cz);
+      g.position.set(cx, baseY - 0.15, cz);
+      const count = 4;
+      for (let i = 0; i < count; i++) {
+        const rGeo = new THREE.DodecahedronGeometry(scale * (0.65 + hash2D(cx + i, cz) * 0.6), 2);
+        rGeo.scale(1.25, 0.76, 1.05);
+        const rock = new THREE.Mesh(rGeo, rockMat);
+        rock.position.set(
+          (i - 1.5) * scale * 0.85,
+          i * scale * 0.16,
+          (hash2D(i, cz + cx) - 0.5) * scale * 0.9
+        );
+        rock.rotation.set(0.2 * i, i * 0.8, 0.15);
+        rock.castShadow = true;
+        rock.receiveShadow = true;
+        g.add(rock);
+      }
+      scene.add(g);
+    }
+
+    addRockCluster(-9.5, 3.2, 1.55);
+    addRockCluster(13.5, -6.5, 1.85);
+    addRockCluster(8.2, 7.8, 0.95);
+
+    // --- Fine, Smaller, Natural Wind-Swaying Grass Tufts (Increased Count) ---
+    const tuftCount = 3600;
+    const tuftPlaneGeo = new THREE.PlaneGeometry(0.88, 0.88);
+    // Pivot at bottom edge so wind sway bends naturally from the root
+    tuftPlaneGeo.translate(0, 0.44, 0);
+
+    const tuftMat = new THREE.MeshStandardMaterial({
+      map: grassTuftTex,
+      alphaTest: 0.15,
+      transparent: true,
+      opacity: 0.95,
+      roughness: 0.78,
+      metalness: 0.02,
+      side: THREE.DoubleSide
+    });
+
+    const tuftInst = new THREE.InstancedMesh(tuftPlaneGeo, tuftMat, tuftCount);
+    tuftInst.receiveShadow = true;
+
+    const dummy = new THREE.Object3D();
+    const tuftTint = new THREE.Color();
+    const tuftMeta = [];
+    let placedTufts = 0;
+
+    for (let i = 0; i < tuftCount * 3 && placedTufts < tuftCount; i++) {
+      const r = 9.2 + Math.pow(hash2D(i * 1.73, i * 0.41), 0.74) * 38;
+      const theta = hash2D(i * 0.89, i * 2.17) * Math.PI * 2;
+      const gx = Math.cos(theta) * r;
+      const gz = Math.sin(theta) * r;
+      const gy = getTerrainHeight(gx, gz);
+      if (gy < waterLevelY + 0.06) continue;
+
+      // Smaller, fine scale range
+      const sBase = 0.42 + hash2D(gx * 0.37, gz * 0.37) * 0.56;
+      const sy = sBase * (0.78 + hash2D(gz * 0.41, gx * 0.41) * 0.38);
+      const rotY = hash2D(i, 5) * Math.PI * 2;
+      const baseTiltX = (hash2D(i, 3) - 0.5) * 0.10;
+      const baseTiltZ = (hash2D(i, 9) - 0.5) * 0.10;
+
+      dummy.position.set(gx, gy - 0.04, gz);
+      dummy.scale.set(sBase, sy, sBase);
+      dummy.rotation.set(baseTiltX, rotY, baseTiltZ);
+      dummy.updateMatrix();
+      tuftInst.setMatrixAt(placedTufts, dummy.matrix);
+
+      const mixT = hash2D(gx * 0.25, gz * 0.25);
+      if (mixT < 0.34) {
+        tuftTint.set('#f598d0');
+      } else if (mixT < 0.74) {
+        tuftTint.set('#ffc4e6');
+      } else {
+        tuftTint.set('#e0a8f5');
+      }
+      tuftInst.setColorAt(placedTufts, tuftTint);
+
+      tuftMeta.push({
+        x: gx,
+        y: gy - 0.04,
+        z: gz,
+        sx: sBase,
+        sy,
+        sz: sBase,
+        rotY,
+        baseTiltX,
+        baseTiltZ,
+        phase: gx * 0.14 + gz * 0.12 + hash2D(i, 29) * 1.6,
+        swayAmp: 0.045 + hash2D(i, 31) * 0.055
+      });
+
+      placedTufts++;
+    }
+
+    tuftInst.count = placedTufts;
+    tuftInst.instanceMatrix.needsUpdate = true;
+    if (tuftInst.instanceColor) tuftInst.instanceColor.needsUpdate = true;
+    scene.add(tuftInst);
+
+    // --- Safari-Safe Glowing Circular Light Orbs (Billboarded InstancedMesh) ---
+    const orbCount = 135;
+    const orbQuadGeo = new THREE.PlaneGeometry(0.68, 0.68);
+    const orbSpriteMat = new THREE.MeshBasicMaterial({
+      map: glowOrbTex,
+      transparent: true,
+      opacity: 0.94,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.DoubleSide
+    });
+
+    const orbInst = new THREE.InstancedMesh(orbQuadGeo, orbSpriteMat, orbCount);
+    orbInst.frustumCulled = false;
+
+    const orbData = [];
+    const cOrbGold = new THREE.Color('#ffe4a6');
+    const cOrbPink = new THREE.Color('#ffb0dc');
+    const cOrbLavender = new THREE.Color('#dec0ff');
+    const orbColorTmp = new THREE.Color();
+
+    for (let i = 0; i < orbCount; i++) {
+      const angle = hash2D(i, 101) * Math.PI * 2;
+      const rad = 1.6 + hash2D(i, 202) * 18.5;
+      const x = Math.cos(angle) * rad;
+      const z = Math.sin(angle) * rad;
+      const y = 0.55 + hash2D(i, 303) * 6.8;
+
+      const pick = hash2D(i, 404);
+      const col = pick < 0.55 ? cOrbGold : (pick < 0.85 ? cOrbPink : cOrbLavender);
+      orbColorTmp.copy(col);
+      orbInst.setColorAt(i, orbColorTmp);
+
+      const scaleBase = 0.58 + hash2D(i, 1212) * 0.72;
+
+      orbData.push({
+        x, y, z,
+        vx: (hash2D(i, 505) - 0.5) * 0.14,
+        vy: (hash2D(i, 606) - 0.5) * 0.10,
+        vz: (hash2D(i, 707) - 0.5) * 0.14,
+        freqX: 0.18 + hash2D(i, 808) * 0.28,
+        freqY: 0.16 + hash2D(i, 909) * 0.25,
+        freqZ: 0.18 + hash2D(i, 1010) * 0.28,
+        phase: hash2D(i, 1111) * Math.PI * 2,
+        scaleBase
+      });
+    }
+
+    if (orbInst.instanceColor) orbInst.instanceColor.needsUpdate = true;
+    scene.add(orbInst);
+
+    // --- Delicate Butterflies ---
+    const butterflies = [];
+    const wingGeo = new THREE.PlaneGeometry(0.24, 0.16);
+    const wingMat = new THREE.MeshBasicMaterial({
+      color: new THREE.Color('#ffe4f2'),
+      side: THREE.DoubleSide,
+      transparent: true,
+      opacity: 0.85
+    });
+
+    for (let i = 0; i < 12; i++) {
+      const bGroup = new THREE.Group();
+      const leftWing = new THREE.Mesh(wingGeo, wingMat);
+      leftWing.position.x = -0.12;
+      const rightWing = new THREE.Mesh(wingGeo, wingMat);
+      rightWing.position.x = 0.12;
+      bGroup.add(leftWing, rightWing);
+      scene.add(bGroup);
+
+      butterflies.push({
+        group: bGroup,
+        leftWing,
+        rightWing,
+        radius: 2.8 + (i % 5) * 1.25,
+        height: 1.7 + (i % 4) * 0.72,
+        speed: 0.2 + (i % 3) * 0.07,
+        phase: i * 1.15,
+        flapSpeed: 10.5 + (i % 4) * 2.2
+      });
+    }
+
+    // --- Camera & Interaction State ---
+    const targetInput = { x: 0, y: 0.15, pinching: false, active: false };
+    const smoothInput = { x: 0, y: 0.15, pinchAmount: 0 };
+
+    let camYaw = 0.0;
+    let camElevation = 0.25;
+    let camDistance = 15.6;
+    const lookTarget = new THREE.Vector3(0, 1.35, 0);
+
+    function resetCameraView() {
+      targetInput.x = 0;
+      targetInput.y = 0.15;
+      targetInput.pinching = false;
+    }
+
+    resetCamBtn.addEventListener('click', resetCameraView);
+
+    // --- Pointer / Touch Fallback ---
+    let isPointerDragging = false;
+    let lastPointerX = 0;
+    let lastPointerY = 0;
+    let controlMode = 'none';
+
+    function updateCursorVisual(clientX, clientY, pinching, show) {
+      if (!show) {
+        handCursor.classList.remove('active');
+        return;
+      }
+      handCursor.style.left = `${clientX}px`;
+      handCursor.style.top = `${clientY}px`;
+      handCursor.classList.add('active');
+      handCursor.classList.toggle('pinch', Boolean(pinching));
+    }
+
+    function setStatus(modeText, dotClass) {
+      statusText.textContent = modeText;
+      statusDot.className = `status-dot ${dotClass || ''}`.trim();
+    }
+
+    canvas.addEventListener('pointermove', (e) => {
+      if (controlMode === 'hand') return;
+      const nx = (e.clientX / window.innerWidth) * 2 - 1;
+      const ny = -((e.clientY / window.innerHeight) * 2 - 1);
+
+      if (isPointerDragging) {
+        const dx = (e.clientX - lastPointerX) / Math.max(window.innerWidth * 0.45, 1);
+        const dy = (e.clientY - lastPointerY) / Math.max(window.innerHeight * 0.45, 1);
+        targetInput.x = THREE.MathUtils.clamp(targetInput.x + dx * 1.4, -1, 1);
+        targetInput.y = THREE.MathUtils.clamp(targetInput.y - dy * 1.4, -0.85, 0.95);
+      } else {
+        targetInput.x = THREE.MathUtils.lerp(targetInput.x, nx * 0.85, 0.25);
+        targetInput.y = THREE.MathUtils.lerp(targetInput.y, ny * 0.75, 0.25);
+      }
+
+      lastPointerX = e.clientX;
+      lastPointerY = e.clientY;
+      targetInput.active = true;
+      updateCursorVisual(e.clientX, e.clientY, isPointerDragging, true);
+    });
+
+    canvas.addEventListener('pointerdown', (e) => {
+      if (controlMode === 'hand') return;
+      isPointerDragging = true;
+      lastPointerX = e.clientX;
+      lastPointerY = e.clientY;
+      targetInput.pinching = true;
+      updateCursorVisual(e.clientX, e.clientY, true, true);
+    });
+
+    window.addEventListener('pointerup', () => {
+      if (controlMode === 'hand') return;
+      isPointerDragging = false;
+      targetInput.pinching = false;
+      updateCursorVisual(lastPointerX, lastPointerY, false, targetInput.active);
+    });
+
+    canvas.addEventListener('wheel', (e) => {
+      if (controlMode === 'hand') return;
+      targetInput.y = THREE.MathUtils.clamp(targetInput.y - e.deltaY * 0.0008, -0.85, 0.95);
+    }, { passive: true });
+
+    // --- MediaPipe Hands & Camera Integration ---
+    let mediaStream = null;
+    let mpHands = null;
+    let rafCameraLoopId = null;
+    let isCameraActive = false;
+
+    const HAND_CONNECTIONS = [
+      [0, 1], [1, 2], [2, 3], [3, 4],
+      [0, 5], [5, 6], [6, 7], [7, 8],
+      [5, 9], [9, 10], [10, 11], [11, 12],
+      [9, 13], [13, 14], [14, 15], [15, 16],
+      [13, 17], [17, 18], [18, 19], [19, 20],
+      [0, 17]
+    ];
+
+    function drawHandSkeleton(landmarks, isPinching) {
+      pipCtx.clearRect(0, 0, pipCanvas.width, pipCanvas.height);
+      if (!landmarks || landmarks.length === 0) return;
+
+      const w = pipCanvas.width;
+      const h = pipCanvas.height;
+
+      const pts = landmarks.map((lm) => ({
+        x: (1 - lm.x) * w,
+        y: lm.y * h
+      }));
+
+      pipCtx.lineWidth = 2;
+      pipCtx.strokeStyle = isPinching ? 'rgba(255, 209, 128, 0.92)' : 'rgba(244, 143, 177, 0.85)';
+
+      for (const [a, b] of HAND_CONNECTIONS) {
+        pipCtx.beginPath();
+        pipCtx.moveTo(pts[a].x, pts[a].y);
+        pipCtx.lineTo(pts[b].x, pts[b].y);
+        pipCtx.stroke();
+      }
+
+      for (let i = 0; i < pts.length; i++) {
+        const isTip = i === 4 || i === 8 || i === 12 || i === 16 || i === 20;
+        pipCtx.beginPath();
+        pipCtx.arc(pts[i].x, pts[i].y, isTip ? 4.2 : 2.5, 0, Math.PI * 2);
+        pipCtx.fillStyle = isTip ? '#ffd180' : '#ffffff';
+        pipCtx.fill();
+      }
+    }
+
+    function onHandResults(results) {
+      if (!isCameraActive) return;
+
+      const hands = results.multiHandLandmarks;
+      if (hands && hands.length > 0) {
+        const lm = hands[0];
+        const palmX = (lm[0].x + lm[9].x) * 0.5;
+        const palmY = (lm[0].y + lm[9].y) * 0.5;
+
+        const mirroredX = 1 - palmX;
+        const nx = THREE.MathUtils.clamp((mirroredX - 0.5) * 2.35, -1, 1);
+        const ny = THREE.MathUtils.clamp((0.5 - palmY) * 2.35, -0.85, 0.95);
+
+        const dx = lm[4].x - lm[8].x;
+        const dy = lm[4].y - lm[8].y;
+        const dist = Math.hypot(dx, dy);
+        const pinching = dist < 0.065;
+
+        targetInput.x = nx;
+        targetInput.y = ny;
+        targetInput.pinching = pinching;
+        targetInput.active = true;
+
+        drawHandSkeleton(lm, pinching);
+        updateCursorVisual(mirroredX * window.innerWidth, palmY * window.innerHeight, pinching, true);
+      } else {
+        pipCtx.clearRect(0, 0, pipCanvas.width, pipCanvas.height);
+        targetInput.pinching = false;
+        updateCursorVisual(0, 0, false, false);
+      }
+    }
+
+    async function initMediaPipeHands() {
+      if (mpHands) return mpHands;
+      const HandsCtor = window.Hands;
+      if (!HandsCtor) {
+        throw new Error('Không tải được thư viện MediaPipe Hands.');
+      }
+
+      const handsInstance = new HandsCtor({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      });
+
+      handsInstance.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.6,
+        minTrackingConfidence: 0.55
+      });
+
+      handsInstance.onResults(onHandResults);
+      mpHands = handsInstance;
+      return mpHands;
+    }
+
+    async function processVideoFrame() {
+      if (!isCameraActive || !mpHands) return;
+      if (pipVideo.readyState >= 2) {
+        try {
+          await mpHands.send({ image: pipVideo });
+        } catch (_) {
+          // Ignore transient frame errors while switching streams
+        }
+      }
+      rafCameraLoopId = requestAnimationFrame(processVideoFrame);
+    }
+
+    async function startCameraMode() {
+      modal.classList.add('hidden');
+      setStatus('Đang khởi tạo camera & nhận diện tay...', '');
+      pipFallback.textContent = 'Đang mở camera...';
+
+      try {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+          throw new Error('Trình duyệt không hỗ trợ truy cập camera.');
+        }
+
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+          audio: false
+        });
+
+        pipVideo.srcObject = mediaStream;
+        await pipVideo.play();
+        pipVideo.classList.add('ready');
+
+        await initMediaPipeHands();
+        isCameraActive = true;
+        controlMode = 'hand';
+        pipFallback.textContent = '';
+        pipTitle.textContent = 'Camera Tay · Đang theo dõi';
+        setStatus('Điều khiển bằng bàn tay (Camera bật)', 'hand-on');
+
+        if (rafCameraLoopId) cancelAnimationFrame(rafCameraLoopId);
+        rafCameraLoopId = requestAnimationFrame(processVideoFrame);
+      } catch (err) {
+        console.warn('Camera fallback:', err);
+        stopCameraMode(false);
+        enablePointerMode('Không dùng được camera — chuyển sang Chuột / Chạm');
+      }
+    }
+
+    function stopCameraMode(switchToPointer = true) {
+      isCameraActive = false;
+      if (rafCameraLoopId) {
+        cancelAnimationFrame(rafCameraLoopId);
+        rafCameraLoopId = null;
+      }
+      if (mediaStream) {
+        mediaStream.getTracks().forEach((t) => t.stop());
+        mediaStream = null;
+      }
+      pipVideo.srcObject = null;
+      pipVideo.classList.remove('ready');
+      pipCtx.clearRect(0, 0, pipCanvas.width, pipCanvas.height);
+      targetInput.pinching = false;
+
+      if (switchToPointer) {
+        enablePointerMode('Chế độ Chuột / Chạm');
+      }
+    }
+
+    function enablePointerMode(label = 'Chế độ Chuột / Chạm') {
+      modal.classList.add('hidden');
+      controlMode = 'pointer';
+      pipTitle.textContent = 'Khung tay (PiP)';
+      pipFallback.textContent = 'Camera đang tắt — di chuyển / kéo chuột hoặc chạm trên màn hình.';
+      setStatus(label, 'pointer-mode');
+    }
+
+    allowCameraBtn.addEventListener('click', startCameraMode);
+    usePointerBtn.addEventListener('click', () => enablePointerMode('Chế độ Chuột / Chạm'));
+
+    toggleCameraBtn.addEventListener('click', () => {
+      if (isCameraActive) {
+        stopCameraMode(true);
+      } else {
+        startCameraMode();
+      }
+    });
+
+    // --- PiP Controls ---
+    pipExpandBtn.addEventListener('click', () => {
+      const expanded = pipCard.classList.toggle('expanded');
+      pipExpandBtn.textContent = expanded ? 'Thu gọn' : 'Mở rộng';
+    });
+
+    function togglePipVisibility() {
+      pipCard.classList.toggle('hidden-pip');
+    }
+
+    pipHideBtn.addEventListener('click', togglePipVisibility);
+    togglePipBtn.addEventListener('click', togglePipVisibility);
+
+    // --- Resize Handling ---
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    });
+
+    // --- Animation Loop ---
+    const clock = new THREE.Clock();
+    const orbDummy = new THREE.Object3D();
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const dt = Math.min(clock.getDelta(), 0.05);
+      const elapsed = clock.getElapsedTime();
+
+      smoothInput.x = THREE.MathUtils.lerp(smoothInput.x, targetInput.x, 1 - Math.exp(-7 * dt));
+      smoothInput.y = THREE.MathUtils.lerp(smoothInput.y, targetInput.y, 1 - Math.exp(-7 * dt));
+      const pinchGoal = targetInput.pinching ? 1 : 0;
+      smoothInput.pinchAmount = THREE.MathUtils.lerp(smoothInput.pinchAmount, pinchGoal, 1 - Math.exp(-10 * dt));
+
+      camYaw = smoothInput.x * 1.35;
+      camElevation = THREE.MathUtils.clamp(0.24 + smoothInput.y * 0.34, 0.04, 0.68);
+      camDistance = 15.8 - smoothInput.y * 2.4 - smoothInput.pinchAmount * 1.6;
+
+      const horizRadius = Math.cos(camElevation) * camDistance;
+      camera.position.set(
+        Math.sin(camYaw) * horizRadius,
+        Math.max(1.15, Math.sin(camElevation) * camDistance + 0.8),
+        Math.cos(camYaw) * horizRadius
+      );
+      camera.lookAt(lookTarget);
+
+      const deg = Math.round(THREE.MathUtils.radToDeg(camYaw));
+      const altVal = ((camElevation - 0.04) / 0.64 * 1.8 + 0.2).toFixed(1);
+      coordsPill.textContent = `Góc: ${deg > 0 ? '+' : ''}${deg}° · Cao độ: ${altVal}`;
+
+      // Gentle sun corona pulse & clouds drift
+      sunCorona.scale.setScalar(1 + Math.sin(elapsed * 0.9) * 0.04);
+      for (const cl of cloudItems) {
+        cl.mesh.position.x = cl.baseX + Math.sin(elapsed * 0.04 * cl.speed + cl.phase) * 5.5 + elapsed * cl.speed * 0.35;
+        if (cl.mesh.position.x > 65) cl.mesh.position.x -= 130;
+        cl.mesh.position.y = cl.baseY + Math.cos(elapsed * 0.22 + cl.phase) * 0.35;
+      }
+
+      // Lotus breathing
+      lotusGroup.position.y = waterLevelY + 0.08 + Math.sin(elapsed * 1.35) * 0.05;
+      lotusCore.scale.setScalar(1 + Math.sin(elapsed * 2.2) * 0.07 + smoothInput.pinchAmount * 0.16);
+      lotusGlowLight.intensity = 3.2 + Math.sin(elapsed * 1.9) * 0.5 + smoothInput.pinchAmount * 1.3;
+
+      petalRings.forEach((item, idx) => {
+        item.ringPivot.rotation.y = Math.sin(elapsed * 0.3 + idx * 0.8) * 0.035;
+      });
+
+      // Natural slow wind sway across grass tufts
+      const windGust = Math.sin(elapsed * 0.55) * 0.025 + Math.cos(elapsed * 0.28) * 0.02;
+      for (let i = 0; i < placedTufts; i++) {
+        const m = tuftMeta[i];
+        const wave = Math.sin(elapsed * 1.15 + m.phase) * m.swayAmp + windGust;
+        const crossWave = Math.cos(elapsed * 0.85 + m.phase * 0.7) * (m.swayAmp * 0.55);
+
+        dummy.position.set(m.x, m.y, m.z);
+        dummy.scale.set(m.sx, m.sy, m.sz);
+        dummy.rotation.set(m.baseTiltX + wave, m.rotY, m.baseTiltZ + crossWave);
+        dummy.updateMatrix();
+        tuftInst.setMatrixAt(i, dummy.matrix);
+      }
+      tuftInst.instanceMatrix.needsUpdate = true;
+
+      // Water ripple & rings
+      waterRippleTex.offset.x = Math.sin(elapsed * 0.18) * 0.16 + elapsed * 0.015;
+      waterRippleTex.offset.y = Math.cos(elapsed * 0.15) * 0.16 + elapsed * 0.012;
+
+      for (const r of rippleRings) {
+        const prog = ((elapsed * 0.14 + r.phase) % 1.0);
+        const s = 1.0 + prog * 5.2;
+        r.mesh.scale.set(s, s, 1);
+        r.mat.opacity = (1.0 - prog) * 0.22;
+      }
+
+      // Slow drifting circular glowing orbs (billboarded toward camera)
+      const attractorX = smoothInput.x * 5.5;
+      const attractorY = 2.0 + smoothInput.y * 2.2;
+      const attractorZ = smoothInput.pinchAmount * 2.0;
+
+      for (let i = 0; i < orbCount; i++) {
+        const o = orbData[i];
+
+        o.vx += (Math.sin(elapsed * o.freqX + o.phase) * 0.035 - o.vx * 0.22) * dt;
+        o.vy += (Math.cos(elapsed * o.freqY + o.phase * 1.3) * 0.028 - o.vy * 0.22) * dt;
+        o.vz += (Math.sin(elapsed * o.freqZ + o.phase * 0.7) * 0.035 - o.vz * 0.22) * dt;
+
+        o.x += o.vx * dt * 1.45;
+        o.y += o.vy * dt * 1.45;
+        o.z += o.vz * dt * 1.45;
+
+        if (o.y < waterLevelY + 0.4) { o.y = waterLevelY + 0.4; o.vy = Math.abs(o.vy) * 0.5 + 0.02; }
+        if (o.y > 8.2) { o.y = 8.2; o.vy = -Math.abs(o.vy) * 0.5 - 0.02; }
+        const radialDist = Math.hypot(o.x, o.z);
+        if (radialDist > 21.0) {
+          o.x *= 0.988;
+          o.z *= 0.988;
+        }
+
+        let px = o.x + Math.sin(elapsed * o.freqX + o.phase) * 0.18;
+        let py = o.y + Math.cos(elapsed * o.freqY + o.phase) * 0.16;
+        let pz = o.z + Math.cos(elapsed * o.freqZ + o.phase) * 0.18;
+
+        if (smoothInput.pinchAmount > 0.01) {
+          const pull = smoothInput.pinchAmount * 0.30;
+          px = THREE.MathUtils.lerp(px, attractorX + Math.sin(elapsed * 1.2 + i) * 1.6, pull);
+          py = THREE.MathUtils.lerp(py, attractorY + Math.cos(elapsed * 1.1 + i) * 1.3, pull);
+          pz = THREE.MathUtils.lerp(pz, attractorZ + Math.sin(elapsed * 1.0 + i * 1.3) * 1.6, pull);
+        }
+
+        const pulse = o.scaleBase * (0.88 + Math.sin(elapsed * 1.8 + o.phase) * 0.18);
+        orbDummy.position.set(px, py, pz);
+        orbDummy.quaternion.copy(camera.quaternion);
+        orbDummy.scale.setScalar(pulse);
+        orbDummy.updateMatrix();
+        orbInst.setMatrixAt(i, orbDummy.matrix);
+      }
+      orbInst.instanceMatrix.needsUpdate = true;
+
+      // Butterflies
+      for (const b of butterflies) {
+        const ang = elapsed * b.speed + b.phase;
+        b.group.position.set(
+          Math.cos(ang) * b.radius,
+          b.height + Math.sin(elapsed * 1.6 + b.phase) * 0.32,
+          Math.sin(ang) * b.radius
+        );
+        b.group.rotation.y = -ang;
+        const flap = Math.sin(elapsed * b.flapSpeed + b.phase) * 0.75;
+        b.leftWing.rotation.y = flap;
+        b.rightWing.rotation.y = -flap;
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    animate();
+  </script>
+</body>
+</html>
