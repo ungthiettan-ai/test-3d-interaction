@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="vi"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hồ sen</title>
+<style>
+:root{--glass:rgba(34,20,58,.55);--line:rgba(255,226,240,.28);--txt:#fff4fa}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%;overflow:hidden;background:#2a2048;color:var(--txt);font:14px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif;user-select:none}
+canvas{position:fixed;inset:0;width:100%;height:100%;display:block}
+.ui{position:fixed;z-index:5;background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);border-radius:999px;padding:7px 14px;color:var(--txt);font:inherit}
+#st{top:14px;left:14px;display:flex;gap:8px;align-items:center}
+#st i{width:8px;height:8px;border-radius:50%;background:#f2c48a;box-shadow:0 0 8px #f2c48a}
+#st.on i{background:#8ef0c8;box-shadow:0 0 8px #8ef0c8}
+#cam{top:14px;right:14px;cursor:pointer}
+#cam:hover{background:rgba(90,50,130,.75)}
+button:focus-visible{outline:2px solid #ffd7a8;outline-offset:3px}
+#intro{position:fixed;inset:0;z-index:8;display:grid;place-items:center;background:rgba(30,18,52,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
+#intro[hidden]{display:none}
+#intro .card{max-width:460px;padding:28px 30px;border:1px solid var(--line);border-radius:20px;background:rgba(40,24,68,.85)}
+#intro h1{font-size:24px;font-weight:600;margin-bottom:10px}
+#intro p{color:#e8d6f2;margin-bottom:10px}
+#go{margin-top:8px;padding:10px 22px;border:0;border-radius:12px;background:linear-gradient(135deg,#c792ea,#f48fb1,#ffd180);color:#2a1245;font:600 14px system-ui;cursor:pointer}
+#pip{position:fixed;z-index:5;right:14px;bottom:14px;width:150px;aspect-ratio:4/3;border-radius:14px;border:1px solid var(--line);object-fit:cover;transform:scaleX(-1);opacity:.9}
+#pip[hidden]{display:none}
+</style></head><body>
+<canvas id="c"></canvas>
+<div class="ui" id="st"><i></i><span id="stt">Đang dựng không gian…</span></div>
+<button class="ui" id="cam">Bật camera tay</button>
+<div id="intro"><div class="card">
+<h1>Hồ sen</h1>
+<p>Nhấp để bắt đầu. Di chuột để nhìn quanh, W A S D hoặc phím mũi tên để đi, Shift để chạy, Esc để thả chuột.</p>
+<p>Với camera tay: đưa tay sang phải hoặc trái để xoay hướng nhìn, đưa lên hoặc xuống để ngẩng và cúi, chụm ngón cái và ngón trỏ để đi tới.</p>
+<button id="go">Bắt đầu</button></div></div>
+<video id="pip" playsinline muted hidden></video>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/hands.js" crossorigin="anonymous"></script>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import {Water} from 'three/addons/objects/Water.js';
+import {EffectComposer} from 'three/addons/postprocessing/EffectComposer.js';
+import {RenderPass} from 'three/addons/postprocessing/RenderPass.js';
+import {UnrealBloomPass} from 'three/addons/postprocessing/UnrealBloomPass.js';
+import {OutputPass} from 'three/addons/postprocessing/OutputPass.js';
+import {mergeGeometries} from 'three/addons/utils/BufferGeometryUtils.js';
+const $=id=>document.getElementById(id),rnd=Math.random;
+const stat=(s,on)=>{$('stt').textContent=s;$('st').classList.toggle('on',!!on)};
+const C=(r,g,b)=>new THREE.Color().setRGB(r,g,b,THREE.SRGBColorSpace);
+// ---------- noise & địa hình ----------
+const hs=(x,y)=>{const s=Math.sin(x*127.1+y*311.7)*43758.5453;return s-Math.floor(s)};
+const vn=(x,y)=>{const i=Math.floor(x),j=Math.floor(y),fx=x-i,fy=y-j,u=fx*fx*(3-2*fx),v=fy*fy*(3-2*fy);return hs(i,j)*(1-u)*(1-v)+hs(i+1,j)*u*(1-v)+hs(i,j+1)*(1-u)*v+hs(i+1,j+1)*u*v};
+const fbm=(x,y)=>{let a=.5,s=0;for(let o=0;o<4;o++){s+=a*vn(x,y);x=x*2.03+17;y=y*2.03+9;a*=.5}return s/.9375};
+const ss=(a,b,x)=>{const t=Math.min(1,Math.max(0,(x-a)/(b-a)));return t*t*(3-2*t)};
+const pondR=a=>15+2.2*Math.sin(a*3+1)+1.4*Math.sin(a*5+2);
+function H(x,z){const r=Math.hypot(x,z),pr=pondR(Math.atan2(z,x)),bank=ss(pr-2.5,pr+1.5,r);
+let h=-1.6*(1-bank)+bank*(.25+.35*fbm(x*.12,z*.12));
+return h+ss(pr+4,70,r)*bank*(4+10*fbm(x*.025+3,z*.025+3))}
+// ---------- renderer ----------
+const cv=$('c'),R=new THREE.WebGLRenderer({canvas:cv,antialias:false,powerPreference:'high-performance'});
+R.setPixelRatio(Math.min(devicePixelRatio,1.75));R.setSize(innerWidth,innerHeight);R.toneMapping=THREE.ACESFilmicToneMapping;R.toneMappingExposure=1.05;
+const scene=new THREE.Scene();scene.fog=new THREE.FogExp2(0xe3c1c8,.011);
+const cam=new THREE.PerspectiveCamera(65,innerWidth/innerHeight,.1,1000);cam.rotation.order='YXZ';
+const sunDir=new THREE.Vector3(-35,16,-92).normalize();
+scene.add(new THREE.HemisphereLight(0xb8a8e8,0xb86a98,1.1));
+const sun=new THREE.DirectionalLight(0xffcfa0,2.4);sun.position.copy(sunDir).multiplyScalar(100);scene.add(sun);
+const coreLight=new THREE.PointLight(0xff8a4a,0,16,2);coreLight.position.set(0,1.6,0);scene.add(coreLight);
+// ---------- bầu trời ----------
+const NZ=`float hs(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+float vn(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.-2.*f);return mix(mix(hs(i),hs(i+vec2(1.,0.)),f.x),mix(hs(i+vec2(0.,1.)),hs(i+vec2(1.,1.)),f.x),f.y);}
+float fb(vec2 p){float a=.5,s=0.;for(int i=0;i<4;i++){s+=a*vn(p);p=p*2.03+7.;a*=.5;}return s;}`;
+const sky=new THREE.Mesh(new THREE.SphereGeometry(500,32,16),new THREE.ShaderMaterial({side:THREE.BackSide,depthWrite:false,uniforms:{uSun:{value:sunDir},uT:{value:0}},
+vertexShader:'varying vec3 vP;void main(){vP=position;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
+fragmentShader:`varying vec3 vP;uniform vec3 uSun;uniform float uT;${NZ}
+void main(){vec3 d=normalize(vP);float h=max(d.y,0.);
+vec3 hor=vec3(.77,.53,.58),mid=vec3(.4,.3,.62),top=vec3(.17,.13,.4);
+vec3 c=mix(hor,mid,smoothstep(0.,.2,h));c=mix(c,top,smoothstep(.15,.75,h));
+vec2 cp=vec2(d.x/(h+.3)*1.4+uT*.004,d.z/(h+.3)*4.);float cl=fb(cp*vec2(1.,.3)),cl2=fb(cp*vec2(2.1,.5)+3.);
+float band=smoothstep(.02,.5,h)*(1.-smoothstep(.6,.95,h));
+c=mix(c,c*vec3(1.35,1.2,1.2)+.06,smoothstep(.45,.75,cl)*band);c*=1.-.22*smoothstep(.5,.8,cl2)*band;
+float s=max(dot(d,uSun),0.);c+=vec3(1.,.62,.32)*(pow(s,6.)*.55+pow(s,180.)*2.2);
+gl_FragColor=vec4(c,1.);}`}));
+sky.renderOrder=-1;scene.add(sky);
+// ---------- bảng màu cánh đồng & bóng đổ của mặt trời ----------
+const cPale=C(.82,.68,.82),cMag=C(.75,.1,.5),cVio=C(.5,.36,.72),cSh=C(.32,.2,.6),cSand=C(.6,.55,.66),cP2=C(.92,.55,.74),tmp=new THREE.Color();
+const GX=70,GN2=140,GS=2*GX/GN2,W1=GN2+1,HMc=new Float32Array(W1*W1),SHc=new Float32Array(W1*W1).fill(1);
+function bil(A,x,z){const u=(x+GX)/GS,v=(z+GX)/GS;if(u<0||v<0||u>=GN2||v>=GN2)return null;const i=Math.floor(u),j=Math.floor(v),fu=u-i,fv=v-j;
+return A[j*W1+i]*(1-fu)*(1-fv)+A[j*W1+i+1]*fu*(1-fv)+A[(j+1)*W1+i]*(1-fu)*fv+A[(j+1)*W1+i+1]*fu*fv}
+const Hs=(x,z)=>{const h=bil(HMc,x,z);return h===null?H(x,z):h};
+const OCC=[[-10,5,3.6,2.4],[-9.2,4.6,2.5,4.1],[-6.2,8.2,1.6,1],[-12.5,1.5,1.2,.5],[40,-48,10,8.5],[-46,-40,7,6]];
+const occ=(x,z)=>{let m=-9;for(const o of OCC)if(Math.hypot(x-o[0],z-o[1])<o[2])m=Math.max(m,o[3]);return m};
+const hl=Math.hypot(sunDir.x,sunDir.z),ux=sunDir.x/hl,uz=sunDir.z/hl,slope=sunDir.y/hl;
+function shadowAt(x,z,h0){let w=0;for(let d=1.5;d<100;d+=1.5){const px=x+ux*d,pz=z+uz*d,e=(Math.max(Hs(px,pz),occ(px,pz))-(h0+d*slope+.08))/(.3+.04*d);if(e>w)w=e}return 1-Math.min(1,w)}
+for(let j=0;j<W1;j++)for(let i=0;i<W1;i++)HMc[j*W1+i]=H(-GX+i*GS,-GX+j*GS);
+for(let j=0;j<W1;j++)for(let i=0;i<W1;i++)SHc[j*W1+i]=shadowAt(-GX+i*GS,-GX+j*GS,HMc[j*W1+i]);
+const lit=(x,z)=>{const s=bil(SHc,x,z);return s===null?1:s};
+function fieldCol(x,z,o){const pn=fbm(x*.045+11,z*.045),dn=fbm(x*.5,z*.5),m=ss(.5,.6,pn+(dn-.5)*.12),v=1-ss(.3,.42,pn+(dn-.5)*.1),l=lit(x,z);
+o.copy(cPale).lerp(cMag,m).lerp(cVio,v*(1-m)).multiplyScalar((.85+.3*dn)*(.45+.55*l)).lerp(cSh,(1-l)*.3)}
+// ---------- địa hình ----------
+const tg=new THREE.PlaneGeometry(300,300,380,380);tg.rotateX(-Math.PI/2);
+{const p=tg.attributes.position,col=new Float32Array(p.count*3);
+for(let i=0;i<p.count;i++){const x=p.getX(i),z=p.getZ(i),h=H(x,z);p.setY(i,h);fieldCol(x,z,tmp);tmp.lerp(cSand,1-ss(.2,.6,h+.4));col[i*3]=tmp.r;col[i*3+1]=tmp.g;col[i*3+2]=tmp.b}
+tg.setAttribute('color',new THREE.BufferAttribute(col,3));tg.computeVertexNormals()}
+scene.add(new THREE.Mesh(tg,new THREE.MeshStandardMaterial({vertexColors:true,roughness:1})));
+// ---------- nước ----------
+function waterNormals(){const N=256,c=document.createElement('canvas');c.width=c.height=N;const x=c.getContext('2d'),im=x.createImageData(N,N);
+const hg=(u,v)=>[[3,1,0,1],[2,5,1.3,.8],[7,3,2.1,.5],[11,9,.7,.3],[5,13,3.3,.25]].reduce((s,[a,b,p,m])=>s+m*Math.sin(6.2832*(a*u+b*v)+p),0);
+for(let j=0;j<N;j++)for(let i=0;i<N;i++){const u=i/N,v=j/N,e=1/N,nx=-(hg(u+e,v)-hg(u-e,v))/(2*e)*.003,ny=-(hg(u,v+e)-hg(u,v-e))/(2*e)*.003,l=Math.hypot(nx,ny,1),k=(j*N+i)*4;
+im.data[k]=(nx/l*.5+.5)*255;im.data[k+1]=(ny/l*.5+.5)*255;im.data[k+2]=(1/l*.5+.5)*255;im.data[k+3]=255}
+x.putImageData(im,0,0);const t=new THREE.CanvasTexture(c);t.wrapS=t.wrapT=THREE.RepeatWrapping;return t}
+const water=new Water(new THREE.PlaneGeometry(600,600),{textureWidth:512,textureHeight:512,waterNormals:waterNormals(),sunDirection:sunDir,sunColor:0xffd9b0,waterColor:0x5a4a8f,distortionScale:2.4,size:10,fog:true});
+water.rotation.x=-Math.PI/2;scene.add(water);
+// ---------- thảm lông magenta (fur shells) ----------
+const fogU=()=>({uFog:{value:scene.fog.color},uFd:{value:scene.fog.density}}),FOGF='1.-exp(-uFd*uFd*vD*vD)';
+const NS=18,pg=new THREE.PlaneGeometry(110,110,280,280);pg.rotateX(-Math.PI/2);
+{const p=pg.attributes.position,col=new Float32Array(p.count*3);
+for(let i=0;i<p.count;i++){const x=p.getX(i),z=p.getZ(i),h=H(x,z);p.setY(i,h+.01);fieldCol(x,z,tmp);tmp.lerp(cSand,1-ss(.2,.6,h+.4));col[i*3]=tmp.r;col[i*3+1]=tmp.g;col[i*3+2]=tmp.b}
+pg.setAttribute('aC',new THREE.BufferAttribute(col,3));pg.computeVertexNormals()}
+const sg2=new THREE.InstancedBufferGeometry();sg2.index=pg.index;['position','normal','aC'].forEach(k=>sg2.setAttribute(k,pg.attributes[k]));
+sg2.setAttribute('aSh',new THREE.InstancedBufferAttribute(Float32Array.from({length:NS},(_,i)=>i/(NS-1)),1));sg2.instanceCount=NS;
+const shellMat=new THREE.ShaderMaterial({uniforms:{uT:{value:0},...fogU()},
+vertexShader:`attribute vec3 aC;attribute float aSh;uniform float uT;varying vec3 vC;varying float vSh,vD;varying vec2 vW;
+void main(){vec3 p=position+normal*(aSh*.17);float ph=dot(position.xz,vec2(.8,.6))*.33-uT*1.8;p.xz+=vec2(.8,.6)*sin(ph)*.02*aSh*aSh;
+vec4 mv=viewMatrix*vec4(p,1.);gl_Position=projectionMatrix*mv;vD=length(mv.xyz);vW=position.xz;vSh=aSh;vC=aC;}`,
+fragmentShader:`uniform vec3 uFog;uniform float uFd;varying vec3 vC;varying float vSh,vD;varying vec2 vW;
+float h2(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7)))*43758.5453);}
+void main(){float f=smoothstep(6.,18.,vD);vec2 cell=floor(vW*160.);float n=h2(cell);
+if(n<vSh*.95*(1.-f))discard;
+vec3 c=vC*mix(mix(.4,1.18,vSh),.95,f)*(.85+.3*h2(cell+7.));gl_FragColor=vec4(mix(c,uFog,${FOGF}),1.);}`});
+const shells=new THREE.Mesh(sg2,shellMat);shells.frustumCulled=false;scene.add(shells);
+// ---------- sợi cỏ mảnh & hoa dại ----------
+const Q=1,NG=Math.round(650000*Q),NF=14000,GN=NG+NF;
+const bg=new THREE.BufferGeometry();
+bg.setAttribute('position',new THREE.Float32BufferAttribute([-.5,0,0,.5,0,0,-.35,.5,0,.35,.5,0,-.18,.85,0,.18,.85,0,0,1,0],3));
+bg.setAttribute('uv',new THREE.Float32BufferAttribute([0,0,0,0,0,.5,0,.5,0,.85,0,.85,0,1],2));
+bg.setIndex([0,1,2,1,3,2,2,3,4,3,5,4,4,5,6]);
+const ig=new THREE.InstancedBufferGeometry();ig.index=bg.index;ig.setAttribute('position',bg.attributes.position);ig.setAttribute('uv',bg.attributes.uv);
+const gOff=new Float32Array(GN*3),gS=new Float32Array(GN*3),gC=new Float32Array(GN*3),gcB=new THREE.Color();
+const spot=()=>{for(;;){let x,z;if(rnd()<.6){const a=rnd()*6.283,r=24*Math.sqrt(rnd());x=Math.cos(a)*r;z=17+Math.sin(a)*r}else{const r=13+49*Math.pow(rnd(),2.2),a=rnd()*6.283;x=Math.cos(a)*r;z=Math.sin(a)*r}
+const h=H(x,z);if(h>.12&&Math.hypot(x+10,z-5)>5.5&&Math.hypot(x,z)<62)return[x,h,z]}};
+for(let n=0;n<NG;n++){const[x,h,z]=spot(),pn=fbm(x*.045+11,z*.045),dn=fbm(x*.5,z*.5),l=lit(x,z),m=ss(.5,.6,pn+(dn-.5)*.12),v=1-ss(.3,.42,pn+(dn-.5)*.1);let hg,wd;
+if(m>rnd()){gcB.copy(cMag).lerp(cP2,rnd()*.4);hg=.12+rnd()*.22;wd=.008+rnd()*.005}
+else if(v>rnd()){gcB.copy(cVio).lerp(cP2,rnd()*.45);hg=.25+rnd()*.35;wd=.006+rnd()*.005}
+else{gcB.copy(cPale).lerp(cP2,rnd()*.35);hg=.35+rnd()*.6;wd=.0045+rnd()*.004}
+gcB.multiplyScalar((.8+rnd()*.4)*(.45+.55*l)).lerp(cSh,(1-l)*.3);
+gOff.set([x,h,z],n*3);gS.set([rnd()*6.283,hg*(1+.4*dn),wd],n*3);gC.set([gcB.r,gcB.g,gcB.b],n*3)}
+// hoa dại nhỏ, mọc thành cụm
+const FC=[C(.98,.78,.12),C(.93,.45,.15),C(.88,.8,.42)],FS=[.034,.045,.15],stalk=C(.74,.7,.66),fPos=new Float32Array(NF*3),fCol=new Float32Array(NF*3),fT=new Float32Array(NF*3);
+for(let k=0;k<NF;k++){const n=NG+k;let x,h,z;do{[x,h,z]=spot()}while(fbm(x*.25+5,z*.25)<.55&&rnd()<.93);
+const ty=k%12===0?2:k%6===0?1:0,yaw=rnd()*6.283,hh=.35+rnd()*.5,ln=.1+.35*((yaw*7.3)%1),lt=.6+.4*lit(x,z);
+gOff.set([x,h,z],n*3);gS.set([yaw,hh,.006],n*3);gC.set([stalk.r*lt,stalk.g*lt,stalk.b*lt],n*3);
+fPos.set([x+Math.sin(yaw)*ln*hh,h+hh,z+Math.cos(yaw)*ln*hh],k*3);fCol.set([FC[ty].r*lt,FC[ty].g*lt,FC[ty].b*lt],k*3);fT.set([ty===2?2:1,FS[ty]*(.8+rnd()*.5),hh],k*3)}
+ig.setAttribute('aOff',new THREE.InstancedBufferAttribute(gOff,3));ig.setAttribute('aS',new THREE.InstancedBufferAttribute(gS,3));ig.setAttribute('aCol',new THREE.InstancedBufferAttribute(gC,3));ig.instanceCount=GN;
+const WIND=`float ph=dot(P.xz,vec2(.8,.6))*.33-uT*1.8,am=.55+.45*sin(dot(P.xz,vec2(-.6,.8))*.1+uT*.35),sw=sin(ph)*am+.25*sin(ph*2.3+1.);`;
+const grassMat=new THREE.ShaderMaterial({side:THREE.DoubleSide,uniforms:{uT:{value:0},uSun:{value:sunDir},...fogU()},
+vertexShader:`attribute vec3 aOff,aCol,aS;uniform float uT;uniform vec3 uSun;varying vec3 vC;varying float vD;
+void main(){float y=uv.y;vec3 p=position;p.x*=aS.z;p.y*=aS.y;float c=cos(aS.x),s=sin(aS.x);p=vec3(c*p.x,p.y,-s*p.x);
+float ln=.1+.35*fract(aS.x*7.3);vec3 w=p+aOff;w.xz+=vec2(sin(aS.x),cos(aS.x))*ln*y*y*aS.y;
+vec3 P=aOff;${WIND}w.xz+=vec2(.8,.6)*sw*.16*y*y*aS.y;
+vec4 mv=viewMatrix*vec4(w,1.);gl_Position=projectionMatrix*mv;vD=length(mv.xyz);
+vec3 col=mix(aCol*vec3(.32,.22,.45),aCol,smoothstep(0.,.75,y));col+=(vec3(1.,.86,.92)-aCol)*.3*smoothstep(.55,1.,y);
+float sn=pow(max(dot(normalize(w-cameraPosition),uSun),0.),3.);col=col*(1.+sn*1.1*y)+vec3(.5,.28,.2)*sn*y*.25;vC=col;}`,
+fragmentShader:`uniform vec3 uFog;uniform float uFd;varying vec3 vC;varying float vD;void main(){gl_FragColor=vec4(mix(vC,uFog,${FOGF}),1.);}`});
+const grass=new THREE.Mesh(ig,grassMat);grass.frustumCulled=false;scene.add(grass);
+const fg=new THREE.BufferGeometry();fg.setAttribute('position',new THREE.BufferAttribute(fPos,3));fg.setAttribute('aCol',new THREE.BufferAttribute(fCol,3));fg.setAttribute('aT',new THREE.BufferAttribute(fT,3));
+const flowerMat=new THREE.ShaderMaterial({uniforms:{uT:{value:0},uK:{value:1},...fogU()},
+vertexShader:`attribute vec3 aCol,aT;uniform float uT,uK;varying vec3 vC;varying float vT,vD;
+void main(){vec3 P=position;${WIND}vec3 w=position;w.xz+=vec2(.8,.6)*sw*.16*aT.z;
+vec4 mv=viewMatrix*vec4(w,1.);gl_Position=projectionMatrix*mv;vD=length(mv.xyz);gl_PointSize=min(80.,aT.y*uK/-mv.z);vC=aCol;vT=aT.x;}`,
+fragmentShader:`uniform vec3 uFog;uniform float uFd;varying vec3 vC;varying float vT,vD;
+void main(){vec2 q=gl_PointCoord-.5;float r=length(q)*2.,a=atan(q.y,q.x),k=vT>1.5?.35+.65*pow(abs(cos(a*11.)),.7):.7+.3*cos(a*7.);if(r>k)discard;
+vec3 c=vT>1.5?mix(vC*1.1,vC*.75,r):vC*(1.-.3*r);if(vT<1.5)c=mix(vec3(.85,.4,.08),c,smoothstep(.1,.3,r));gl_FragColor=vec4(mix(c,uFog,${FOGF}),1.);}`});
+const flowers=new THREE.Points(fg,flowerMat);flowers.frustumCulled=false;scene.add(flowers);
+const setK=()=>flowerMat.uniforms.uK.value=innerHeight*R.getPixelRatio()/(2*Math.tan(.5672));setK();addEventListener('resize',setK);
+// giảm tải khi vẽ phản chiếu mặt nước
+const wob=water.onBeforeRender;water.onBeforeRender=function(...a){const n=ig.instanceCount,s=sg2.instanceCount;ig.instanceCount=n*.3|0;sg2.instanceCount=6;wob.apply(this,a);ig.instanceCount=n;sg2.instanceCount=s};
+// ---------- đá sa thạch có texture ----------
+const RF=`float h31(vec3 p){p=fract(p*.3183099+.1);p*=17.;return fract(p.x*p.y*p.z*(p.x+p.y+p.z));}
+float n3(vec3 x){vec3 i=floor(x),f=fract(x);f=f*f*(3.-2.*f);
+return mix(mix(mix(h31(i),h31(i+vec3(1.,0.,0.)),f.x),mix(h31(i+vec3(0.,1.,0.)),h31(i+vec3(1.,1.,0.)),f.x),f.y),mix(mix(h31(i+vec3(0.,0.,1.)),h31(i+vec3(1.,0.,1.)),f.x),mix(h31(i+vec3(0.,1.,1.)),h31(i+vec3(1.,1.,1.)),f.x),f.y),f.z);}`;
+const RC=`{vec3 p=vRP;float g=n3(p*22.)*.5+n3(p*55.)*.3+n3(p*9.)*.4;vec3 m=vec3(.72+.42*g);
+m*=.9+.2*n3(vec3(p.x*.6,p.y*7.,p.z*.6));
+float c1=1.-smoothstep(0.,.03,abs(n3(p*1.7+3.)-.5)),c2=1.-smoothstep(0.,.02,abs(n3(p*3.4+9.)-.5));m*=1.-.5*c1-.35*c2;
+float vn_=1.-smoothstep(0.,.022,abs(n3(p*1.1+21.)-.5));
+diffuseColor.rgb=mix(diffuseColor.rgb*m,vec3(.34,.1,.32),vn_*.65);
+float lc=smoothstep(.68,.8,n3(p*4.+7.));diffuseColor.rgb=mix(diffuseColor.rgb,vec3(.5,.44,.34)*(.7+.3*g),lc*.45);}`;
+const rockMat=new THREE.MeshStandardMaterial({vertexColors:true,roughness:.92});
+rockMat.onBeforeCompile=s=>{s.vertexShader=s.vertexShader.replace('#include <common>','#include <common>\nvarying vec3 vRP;').replace('#include <begin_vertex>','#include <begin_vertex>\nvRP=position;');
+s.fragmentShader=s.fragmentShader.replace('#include <common>','#include <common>\nvarying vec3 vRP;\n'+RF).replace('#include <color_fragment>','#include <color_fragment>\n'+RC)};
+function rock(w,h,d,seed,px,py,pz,ry,tint){const sg=v=>Math.min(40,Math.max(8,Math.round(v*4))),g=new THREE.BoxGeometry(w,h,d,sg(w),sg(h),sg(d)),p=g.attributes.position,col=new Float32Array(p.count*3),c=new THREE.Color();
+for(let i=0;i<p.count;i++){let x=p.getX(i),y=p.getY(i),z=p.getZ(i);const q=fbm(x*.5+seed,z*.5+y*.9)*1.1+fbm(x*2+seed,y*3+z*2)*.25,k=1+(q-.55)*.35;
+x*=k;z*=k;y+=(fbm(x*.8+seed,z*.8)-.5)*h*.12;const L=Math.hypot(x/w,y/h,z/d)||1,cr=1-ss(0,.05,Math.abs(fbm(x*.9+seed,z*.9+y*.9)-.5)),rl=(fbm(x*3+seed,y*3+z*3)-.5)*.16+(fbm(x*9+seed,z*9+y*9)-.5)*.05-cr*.1;x+=x/w/L*rl;y+=y/h/L*rl;z+=z/d/L*rl;p.setXYZ(i,x,y,z);
+const band=Math.sin((y+py)*7+seed*3)*.5+.5;c.setRGB(.66+.08*band,.58+.03*band,.5+.1*band,THREE.SRGBColorSpace).lerp(tint,.25+.2*fbm(x+seed,z));c.multiplyScalar(.85+.2*ss(-h/2,h/2,y));
+col[i*3]=c.r;col[i*3+1]=c.g;col[i*3+2]=c.b}
+g.setAttribute('color',new THREE.BufferAttribute(col,3));g.computeVertexNormals();
+const m=new THREE.Mesh(g,rockMat);m.position.set(px,py,pz);m.rotation.y=ry;scene.add(m)}
+const tL=C(.75,.6,.65),tF=C(.95,.75,.8);
+rock(7,3.4,5,1,-10,.7,5,.4,tL);rock(5,2.4,4,2,-9.2,2.9,4.6,-.3,tL);rock(3.2,1.8,3,3,-6.2,.1,8.2,.8,tL);rock(2.4,1.4,2.2,4,-12.5,-.2,1.5,1.1,tL);
+rock(20,10,15,5,40,3.5,-48,.5,tF);rock(14,7,11,6,-46,2.5,-40,-.4,tF);
+// ---------- lá sen & hoa sen nhỏ ----------
+const padG=new THREE.CircleGeometry(1,28,.25,Math.PI*2-.5);padG.rotateX(-Math.PI/2);
+const PN=95,pads=new THREE.InstancedMesh(padG,new THREE.MeshStandardMaterial({color:0xffffff,roughness:.55,side:THREE.DoubleSide}),PN),dm=new THREE.Object3D(),spots=[];
+for(let n=0;n<PN;){const a=rnd()*6.283,r=5+rnd()*11,x=Math.cos(a)*r,z=Math.sin(a)*r;if(r>pondR(a)-2.5||Math.hypot(x+10,z-5)<6)continue;
+dm.position.set(x,.05,z);dm.rotation.set(0,rnd()*6.283,0);dm.scale.setScalar(.5+rnd()*.9);dm.updateMatrix();pads.setMatrixAt(n,dm.matrix);
+pads.setColorAt(n,C(.3+rnd()*.12,.38+rnd()*.1,.5+rnd()*.1));if(rnd()<.2)spots.push([x,z]);n++}
+scene.add(pads);
+{const parts=[];for(let i=0;i<9;i++){const g=new THREE.ConeGeometry(.09,.5,5);g.translate(0,.25,0);g.rotateX(.9);g.rotateY(i*6.283/9);parts.push(g)}
+const lil=new THREE.InstancedMesh(mergeGeometries(parts),new THREE.MeshStandardMaterial({color:0xfff2f8,emissive:0xffd0e8,emissiveIntensity:.25,roughness:.5}),spots.length);
+spots.forEach(([x,z],i)=>{dm.position.set(x,.08,z);dm.rotation.set(0,rnd()*6.283,0);dm.scale.setScalar(.8+rnd()*.5);dm.updateMatrix();lil.setMatrixAt(i,dm.matrix)});scene.add(lil)}
+// ---------- hoa sen chính ----------
+function petalPos(L,Wd,bend,cup){const sl=14,sw=8,a=[];
+for(let i=0;i<=sl;i++){const s=i/sl,w=Wd*Math.pow(Math.sin(Math.PI*Math.pow(s,.75)),.8)+1e-4;
+for(let j=0;j<=sw;j++){const t=j/sw*2-1;a.push(t*w/2,s*L,bend*L*s*s-cup*t*t*w*.35)}}return new Float32Array(a)}
+const c1=C(.36,.22,.85),c2=C(.86,.62,1),c3=C(1,.9,.96),pc=new THREE.Color();
+function petalGeo(L,Wd){const sl=14,sw=8,g=new THREE.BufferGeometry(),idx=[],col=[];
+g.setAttribute('position',new THREE.BufferAttribute(petalPos(L,Wd,.22,.3),3));
+for(let i=0;i<=sl;i++){const s=i/sl;for(let j=0;j<=sw;j++){const t=j/sw*2-1;
+if(s<.45)pc.copy(c1).lerp(c2,s/.45);else pc.copy(c2).lerp(c3,(s-.45)/.55);pc.multiplyScalar(1-.14*Math.abs(Math.sin(t*9)));col.push(pc.r,pc.g,pc.b)}}
+for(let i=0;i<sl;i++)for(let j=0;j<sw;j++){const a=i*(sw+1)+j,b=a+1,c=a+sw+1,d=c+1;idx.push(a,b,c,b,d,c)}
+g.setIndex(idx);g.setAttribute('color',new THREE.Float32BufferAttribute(col,3));g.computeVertexNormals();
+g.morphAttributes.position=[new THREE.BufferAttribute(petalPos(L,Wd,-.18,.9),3)];return g}
+const pm={vertexColors:true,roughness:.35,clearcoat:.8,clearcoatRoughness:.2,iridescence:.8,iridescenceIOR:1.4,sheen:1,sheenColor:new THREE.Color(0xffb5ff),sheenRoughness:.4,side:THREE.DoubleSide};
+const matO=new THREE.MeshPhysicalMaterial(pm),matI=new THREE.MeshPhysicalMaterial({...pm,emissive:0xff7a40,emissiveIntensity:.35});
+const lotus=new THREE.Group();lotus.position.y=.05;scene.add(lotus);
+const rings=[{n:9,L:3.7,W:1.7,tc:.18,to:1.38,r0:.35,m:matO},{n:8,L:3.3,W:1.55,tc:.14,to:1.0,r0:.3,m:matO},{n:7,L:2.8,W:1.35,tc:.1,to:.62,r0:.22,m:matI},{n:5,L:2.2,W:1.1,tc:.06,to:.3,r0:.12,m:matI}],petals=[];
+rings.forEach((rg,ri)=>{const g=petalGeo(rg.L,rg.W);for(let i=0;i<rg.n;i++){const pv=new THREE.Object3D();pv.rotation.y=i/rg.n*6.283+ri*.35;
+const m=new THREE.Mesh(g,rg.m);m.position.z=rg.r0;m.morphTargetInfluences=[1];pv.add(m);lotus.add(pv);petals.push({m,ri,tc:rg.tc,to:rg.to,j:(rnd()-.5)*.12})}});
+const coreMat=new THREE.MeshStandardMaterial({color:0x331100,emissive:0xff8a30,emissiveIntensity:0});
+const core=new THREE.Mesh(new THREE.SphereGeometry(.38,20,14),coreMat);core.position.y=.9;lotus.add(core);
+const dot=(rgb)=>{const c=document.createElement('canvas');c.width=c.height=64;const x=c.getContext('2d'),g=x.createRadialGradient(32,32,0,32,32,32);g.addColorStop(0,'rgba(255,255,255,1)');g.addColorStop(.35,'rgba(255,255,255,.45)');g.addColorStop(1,'rgba(255,255,255,0)');x.fillStyle=g;x.fillRect(0,0,64,64);return new THREE.CanvasTexture(c)};
+const sprTex=dot();
+const halo=new THREE.Sprite(new THREE.SpriteMaterial({map:sprTex,color:0xff9050,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,opacity:0}));halo.scale.set(7,7,1);halo.position.y=1.2;lotus.add(halo);
+// ---------- hạt: tàn lửa, cánh hoa, bướm ----------
+function pts(n,size,color,fn){const p=new Float32Array(n*3);for(let i=0;i<n;i++)p.set(fn(i),i*3);const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(p,3));
+const o=new THREE.Points(g,new THREE.PointsMaterial({map:sprTex,size,color,transparent:true,depthWrite:false,blending:THREE.AdditiveBlending}));o.frustumCulled=false;scene.add(o);return o}
+const EN=320,emb=pts(EN,.3,0xffa050,()=>{const a=rnd()*6.283,r=rnd()*3.2;return[Math.cos(a)*r,rnd()*6,Math.sin(a)*r]});
+const PNn=400,pet=pts(PNn,.4,0xff9ec8,()=>[(rnd()-.5)*100,.5+rnd()*12,(rnd()-.5)*100]);
+const wg=new THREE.BufferGeometry();wg.setAttribute('position',new THREE.Float32BufferAttribute([0,0,0,1,0,-.8,1.2,0,.1,.6,0,.8],3));wg.setIndex([0,1,2,0,2,3]);
+const wm=new THREE.MeshBasicMaterial({color:0x3a2468,side:THREE.DoubleSide}),flies=[];
+for(let i=0;i<9;i++){const g=new THREE.Group(),r=new THREE.Mesh(wg,wm),l=new THREE.Mesh(wg,wm);l.scale.x=-1;g.add(r,l);g.scale.setScalar(.22);scene.add(g);flies.push({g,r,l,ph:rnd()*6.283,R1:4+rnd()*9,R2:4+rnd()*9})}
+const fp=(f,t,v)=>v.set(Math.cos(.22*t+f.ph)*f.R1,2.2+Math.sin(.7*t+f.ph*2)*1.4,Math.sin(.17*t+f.ph*1.7)*f.R2);
+// ---------- hậu kỳ ----------
+const comp=new EffectComposer(R,new THREE.WebGLRenderTarget(innerWidth,innerHeight,{type:THREE.HalfFloatType,samples:4}));
+comp.addPass(new RenderPass(scene,cam));comp.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth,innerHeight),.5,.7,.85));comp.addPass(new OutputPass());
+addEventListener('resize',()=>{R.setSize(innerWidth,innerHeight);comp.setSize(innerWidth,innerHeight);cam.aspect=innerWidth/innerHeight;cam.updateProjectionMatrix()});
+// ---------- điều khiển ----------
+let yaw=0,pitch=.02,px=0,pz=17;cam.position.set(px,2.1,pz);
+const keys={};addEventListener('keydown',e=>keys[e.code]=true);addEventListener('keyup',e=>keys[e.code]=false);
+cv.addEventListener('click',()=>{if(!$('intro').hidden)return;cv.requestPointerLock&&cv.requestPointerLock()});
+$('go').onclick=()=>{$('intro').hidden=true;cv.requestPointerLock&&cv.requestPointerLock()};
+addEventListener('mousemove',e=>{if(document.pointerLockElement===cv||e.buttons&1){yaw-=(e.movementX||0)*.0022;pitch=Math.max(-1.3,Math.min(1.3,pitch-(e.movementY||0)*.0022))}});
+let hand=null,camOn=false,hands=null;
+async function startCam(){try{stat('Đang mở camera…');
+if(typeof Hands==='undefined')throw 0;
+$('pip').srcObject=await navigator.mediaDevices.getUserMedia({video:{width:640,height:480,facingMode:'user'},audio:false});await $('pip').play();$('pip').hidden=false;
+if(!hands){hands=new Hands({locateFile:f=>'https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4.1675469240/'+f});hands.setOptions({maxNumHands:1,modelComplexity:0,minDetectionConfidence:.6,minTrackingConfidence:.5});hands.onResults(onHand)}
+camOn=true;$('cam').textContent='Tắt camera tay';stat('Camera bật. Đưa tay vào khung hình',true);
+(async function L(){if(!camOn)return;if($('pip').readyState>=2)await hands.send({image:$('pip')});requestAnimationFrame(L)})();
+}catch(e){camOn=false;stat('Không mở được camera. Dùng chuột và bàn phím')}}
+function stopCam(){camOn=false;hand=null;const s=$('pip').srcObject;s&&s.getTracks().forEach(t=>t.stop());$('pip').hidden=true;$('cam').textContent='Bật camera tay';stat('Chuột: nhìn quanh. WASD: đi')}
+$('cam').onclick=()=>camOn?stopCam():startCam();
+function onHand(r){const l=r.multiHandLandmarks&&r.multiHandLandmarks[0];if(!l){hand=null;return}
+let x=0,y=0;[0,5,9,13,17].forEach(i=>{x+=l[i].x/5;y+=l[i].y/5});hand={x:1-x,y,pin:Math.hypot(l[4].x-l[8].x,l[4].y-l[8].y)<.055}}
+// ---------- vòng lặp ----------
+const clk=new THREE.Clock(),v3=new THREE.Vector3(),v4=new THREE.Vector3();stat('Chuột: nhìn quanh. WASD: đi');
+function frame(){const dt=Math.min(.05,clk.getDelta()),t=clk.elapsedTime;
+// hoa sen tự nở rồi khép, lặp lại mỗi 24 giây
+const p=(t%24)/24,u=ss(.08,.32,p)*(1-ss(.62,.86,p));
+petals.forEach(q=>{const ui=ss(0,1,Math.min(1,Math.max(0,(u-q.ri*.1)/.7)));q.m.rotation.x=q.tc+(q.to-q.tc)*ui+q.j*ui;q.m.morphTargetInfluences[0]=1-ui});
+coreMat.emissiveIntensity=.4+2.6*u;coreLight.intensity=3+22*u;halo.material.opacity=.12+.5*u;emb.material.opacity=.3+.7*u;
+const ep=emb.geometry.attributes.position;for(let i=0;i<EN;i++){let y=ep.getY(i)+(.25+.4*((i*37)%10)/10)*dt;if(y>7)y=.6;ep.setY(i,y);ep.setX(i,ep.getX(i)+Math.sin(t+i)*.1*dt)}ep.needsUpdate=true;
+const pp=pet.geometry.attributes.position;for(let i=0;i<PNn;i++){let y=pp.getY(i)-(.35+.3*((i*13)%10)/10)*dt,x=pp.getX(i)+(Math.sin(t*.6+i)*.5+.3)*dt;if(y<.2)y=12;if(x>50)x=-50;pp.setXYZ(i,x,y,pp.getZ(i))}pp.needsUpdate=true;
+flies.forEach(f=>{fp(f,t,v3);f.g.position.copy(v3);fp(f,t+.1,v4);f.g.lookAt(v4);const a=Math.sin(t*16+f.ph)*.9;f.r.rotation.z=a;f.l.rotation.z=-a});
+// di chuyển và hướng nhìn
+if(hand){const dx=hand.x-.5;if(Math.abs(dx)>.08)yaw-=Math.sign(dx)*(Math.abs(dx)-.08)*3.4*dt;pitch+=(Math.max(-.9,Math.min(1,(.5-hand.y)*1.8))-pitch)*.1}
+let f=(keys.KeyW||keys.ArrowUp?1:0)-(keys.KeyS||keys.ArrowDown?1:0)+(hand&&hand.pin?1:0),s=(keys.KeyD||keys.ArrowRight?1:0)-(keys.KeyA||keys.ArrowLeft?1:0);
+const sp=(keys.ShiftLeft?6.4:3.2)*dt;px+=(-Math.sin(yaw)*f+Math.cos(yaw)*s)*sp;pz+=(-Math.cos(yaw)*f-Math.sin(yaw)*s)*sp;
+const r=Math.hypot(px,pz);if(r>48){px*=48/r;pz*=48/r}if(r<2.6){px*=2.6/Math.max(r,.01);pz*=2.6/Math.max(r,.01)}
+cam.position.set(px,cam.position.y+(Math.max(H(px,pz),-.3)+1.7-cam.position.y)*.15,pz);cam.rotation.set(pitch,yaw,0);
+water.material.uniforms.time.value+=dt*.35;grassMat.uniforms.uT.value=t;flowerMat.uniforms.uT.value=t;shellMat.uniforms.uT.value=t;sky.material.uniforms.uT.value=t;
+comp.render();requestAnimationFrame(frame)}
+frame();
+</script></body></html>
